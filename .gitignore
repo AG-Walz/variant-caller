@@ -1,0 +1,56 @@
+# Nextflow
+.nextflow/
+.nextflow.log*
+work/
+results/
+report.html*
+timeline.html*
+trace.txt*
+dag.dot*
+dag.html*
+.nextflow.pid
+
+# nf-test
+.nf-test/
+.nf-test.log
+
+# References and test data — never commit, they are large and licensed
+references/
+*.fa
+*.fa.gz
+*.fasta
+*.fasta.gz
+*.fai
+*.dict
+*.bed
+*.vcf
+*.vcf.gz
+*.vcf.gz.tbi
+*.bam
+*.bai
+*.cram
+*.crai
+*.fastq
+*.fastq.gz
+*.fq.gz
+
+# Containers
+*.sif
+*.img
+singularity_cache/
+conda/
+
+# Python / tooling
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.mypy_cache/
+.ruff_cache/
+
+# Editors and OS
+.vscode/
+.idea/
+.DS_Store
+*.swp
+*~
