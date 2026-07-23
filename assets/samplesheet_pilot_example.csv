@@ -1,0 +1,3 @@
+patient,sex,status,sample,lane,fastq_1,fastq_2
+P11,NA,1,S12944Nr11,L001,/mnt/volume/data/fastq-example-data/UrCA/01_fastq/S000021_S12944Nr11.1.fastq.gz,/mnt/volume/data/fastq-example-data/UrCA/01_fastq/S000021_S12944Nr11.2.fastq.gz
+P11,NA,0,S12944Nr12,L001,/mnt/volume/data/fastq-example-data/UrCA/01_fastq/S000021_S12944Nr12.1.fastq.gz,/mnt/volume/data/fastq-example-data/UrCA/01_fastq/S000021_S12944Nr12.2.fastq.gz
