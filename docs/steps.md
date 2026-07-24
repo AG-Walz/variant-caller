@@ -6,7 +6,29 @@ only). Each step lists the exact command and what to expect.
 
 Assumes you are in the repo root: `/mnt/volume/variant_caller/variant-caller`.
 
-## 0. Start a screen session
+## 0a. On a fresh box: clone both repos as siblings, then bootstrap
+
+`run_pilot.sh` resolves sarek as **`../sarek`** — this repo *wraps* sarek by path, it does not
+vendor or fork it. So the two must sit side by side:
+
+```bash
+mkdir -p ~/variant_caller && cd ~/variant_caller
+git clone https://github.com/AG-Walz/variant-caller.git
+cd variant-caller && git checkout feat/v1-pilot   # main is still the scaffold
+
+scripts/setup_env.sh          # clones ../sarek at 3.9.0 + installs Nextflow
+tests/check_environment.sh    # verifies everything, including what setup_env does not install
+```
+
+`setup_env.sh` is idempotent and installs no system packages — it detects Java and Docker and
+tells you the command to install them, rather than running it for you on a shared box.
+`check_environment.sh` is read-only and exits non-zero if any hard requirement is unmet.
+
+**Versions are not negotiable:** sarek 3.9.0 pins `nextflowVersion = '!>=25.10.2'`, and the
+leading `!` makes a lower version a **hard launch failure**, not a warning. Nextflow 25.10 in
+turn requires **Java 17+**.
+
+## 0b. Start a screen session
 
 A full run is long; a dropped SSH connection must not kill it.
 
@@ -18,17 +40,19 @@ screen -S variant-caller
 
 ## 1. Install Nextflow (once)
 
-Nextflow is **not** pre-installed on this box. It needs Java 11+.
+`scripts/setup_env.sh` in step 0a does this for you. To do it by hand:
 
 ```bash
-which nextflow   # if this prints a path, skip this step
+which nextflow   # if this prints a path, check it is >= 25.10.2
 curl -s https://get.nextflow.io | bash
 sudo mv nextflow /usr/local/bin/    # or put it anywhere on PATH
-nextflow -version
+nextflow -version                   # must be >= 25.10.2
 ```
 
-`scripts/run_pilot.sh` also checks for `nextflow` and stops with guidance if it is missing.
-Docker must be usable by your user (`docker ps` should work).
+Nextflow needs **Java 17+** (not 11 — 25.10 dropped it), e.g.
+`sudo apt-get install -y openjdk-17-jre-headless`. Docker must be usable by your user without
+sudo (`docker ps` should work). `scripts/run_pilot.sh` also checks for `nextflow` and `docker`
+and stops with guidance if either is missing.
 
 ## 2. Fetch references (once, large download)
 

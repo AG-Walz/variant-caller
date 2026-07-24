@@ -7,7 +7,7 @@ Guidance for Claude Code (claude.ai/code) when working in this repository.
 `variant-caller` v1 is a **lean orchestration repo**, not an nf-core DSL2 pipeline. It turns
 tumour/normal **FASTQ + user-declared sample labels** into **one paired somatic VCF per
 patient**, and nothing else. It does this by **shelling out** to a single, pinned
-`nextflow run` of a **local, customised nf-core/sarek clone** (tag 3.9.0) that lives beside
+`nextflow run` of a **sibling clone of upstream nf-core/sarek** (tag 3.9.0) that lives beside
 this repo at `../sarek`. It does **not** `include` sarek modules, fork sarek, or reimplement
 calling. There is no `main.nf`, no `modules/`, no `workflows/`.
 
@@ -17,6 +17,11 @@ This repo adds `bin/` helper tools and `tests/` for soundness.
 
 ## Repository Structure
 
+- `scripts/setup_env.sh` — bootstrap a fresh box: clone the sibling `../sarek` at tag 3.9.0 and
+  install Nextflow. Idempotent; installs **no** system packages (detects Java/Docker, prints the
+  install command instead of running it).
+- `tests/check_environment.sh` — read-only preflight; PASS/FAIL/WARN table, non-zero exit if any
+  hard requirement is unmet. Named `check_*` so the `tests/test_*` glob stays the unit tests.
 - `scripts/fetch_references.sh` — download GRCh38 + gnomAD germline resource into `references/`.
 - `scripts/run_pilot.sh` — the pinned minimal `nextflow run ../sarek ...` for the pilot pair.
 - `bin/build_target_bed.sh <counts.gc-corrected.gz> <out.bed> [--pad N]` — DRAGEN target-count
@@ -34,6 +39,8 @@ This repo adds `bin/` helper tools and `tests/` for soundness.
 ## How to run (pilot, on peptimine_highmem1)
 
 ```bash
+scripts/setup_env.sh                 # fresh box: clone ../sarek 3.9.0 + install Nextflow
+tests/check_environment.sh           # verify (incl. Java 17+, Docker, RAM, sarek sibling)
 scripts/fetch_references.sh          # once → references/
 bin/build_target_bed.sh /mnt/volume/data/DNA/00_metrics/<sample>.target.counts.gc-corrected.gz \
     references/target_pad30.bed      # once
@@ -54,6 +61,10 @@ itself once the VCF is produced.
 Target box: 28 cores, ~503 GB RAM, **Docker only** (no singularity/apptainer), **Nextflow not
 pre-installed**, run in `screen`. So: always `-profile docker`; run scripts check for
 `nextflow`; **not** SLURM/`sbatch`.
+
+**Versions are hard requirements, not preferences:** sarek 3.9.0 pins
+`nextflowVersion = '!>=25.10.2'` (the leading `!` makes a lower version a launch failure), and
+Nextflow 25.10 needs **Java 17+** — not 11.
 
 ## The pinned sarek command (every token is deliberate — do not add flags not listed)
 

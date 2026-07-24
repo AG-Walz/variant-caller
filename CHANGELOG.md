@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.1.0] — 2026-07-23
 
 First working v1: **FASTQ + declared sample labels → one paired somatic VCF per patient**, by
-wrapping the local, customised nf-core/sarek clone (tag 3.9.0, at `../sarek`) with a single
+wrapping a sibling clone of upstream nf-core/sarek (tag 3.9.0, at `../sarek`) with a single
 pinned, minimal invocation. This reverses the earlier ingest-first / fuller-scope design in
 favour of a lean FASTQ-first orchestration repo mirroring the sibling `fastq-to-fasta` shape.
 
@@ -72,8 +72,29 @@ selection; epitopeprediction handoff samplesheet; annotation / VEP; multiple cal
   carrying another machine's absolute paths is a hard launch failure; the check names the
   missing files and the `build_samplesheet.py` command that fixes them.
 
+- `scripts/setup_env.sh` — one-time bootstrap for a fresh box: clones the sibling `../sarek` at
+  tag 3.9.0 (which `run_pilot.sh` resolves **by path**, so the repos must be siblings) and
+  installs Nextflow at the required version. Idempotent, and installs no system packages: Java
+  and Docker need root and a policy decision on a shared box, so it detects them and prints the
+  install command rather than running it.
+- `tests/check_environment.sh` — read-only preflight answering "can this box run the pipeline?".
+  PASS/FAIL/WARN per requirement (Java 17+, Nextflow ≥ 25.10.2, usable Docker, python3/awk/curl/
+  git, sarek sibling at 3.9.0 and unmodified, references, samplesheet FASTQs resolvable, free
+  disk, RAM ≥ 100 GB for the bwa-mem2 index build), non-zero exit on any hard failure.
+
 ### Changed
 
 - `assets/samplesheet_pilot_example.csv` is documented as an **example** only. The samplesheet
   is now expected to be regenerated on whichever box runs the pipeline; the declarations TSV is
   the portable artefact.
+
+### Corrected
+
+- **sarek 3.9.0 is public and this clone is stock.** `CLAUDE.md`, `README.md` and `docs/usage.md`
+  claimed the wrapped clone was "customised" and that "there is no public sarek 3.9.0". Both are
+  false: tag `3.9.0` is published on `nf-core/sarek` at `b97952e`, and the local clone is
+  identical to it with no local modifications. A new box reproduces it with `git clone` +
+  `git checkout 3.9.0`.
+- **Prerequisites were wrong.** `docs/steps.md` said Nextflow "needs Java 11+". sarek 3.9.0 pins
+  `nextflowVersion = '!>=25.10.2'` — a hard failure, not a warning — and Nextflow 25.10 requires
+  **Java 17+**. A box provisioned per the old instructions would have failed at launch.

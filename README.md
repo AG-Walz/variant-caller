@@ -4,7 +4,7 @@ Turn tumour/normal **FASTQ** plus **declared sample labels** into **one somatic 
 patient**. Nothing else.
 
 v1 is a lean orchestration repo: it does not reimplement variant calling. It **wraps a
-local, customised [nf-core/sarek](https://github.com/nf-core/sarek) clone** (tag 3.9.0) with
+sibling [nf-core/sarek](https://github.com/nf-core/sarek) clone** (tag 3.9.0, upstream) with
 a single, deliberately minimal invocation and guards the result with a strict output
 assertion. Think "shell script around `nextflow run`", not "DSL2 pipeline".
 
@@ -44,6 +44,11 @@ contract; some belong to other pipelines.
 Run on the target box (Docker only, Nextflow in a `screen` session). End to end:
 
 ```bash
+# 0. Fresh box only: clone ../sarek at 3.9.0 and install Nextflow, then verify.
+#    run_pilot.sh resolves sarek as ../sarek, so the two repos must be SIBLINGS.
+scripts/setup_env.sh
+tests/check_environment.sh
+
 # 1. Download the reference bundle (genome + gnomAD germline resource). One-off, large.
 scripts/fetch_references.sh
 
@@ -83,6 +88,7 @@ Full operator runbook: **[docs/steps.md](docs/steps.md)**.
 README.md            this file
 CLAUDE.md            guidance for Claude Code in this repo
 scripts/
+  setup_env.sh          bootstrap a fresh box: clone ../sarek at 3.9.0 + install Nextflow
   fetch_references.sh   download genome + gnomAD germline resource
   run_pilot.sh          the pinned minimal `nextflow run <sarek>` for the pilot pair
 bin/
@@ -94,6 +100,7 @@ assets/
   samplesheet_pilot_example.csv example emitted sarek samplesheet
 nextflow.config         minimal resource-override config passed to sarek via `-c`
 tests/                  soundness checks for the helper tools
+  check_environment.sh  read-only preflight: can THIS box run the pipeline?
 docs/                   introduction, inputs, usage, output, steps
 ```
 

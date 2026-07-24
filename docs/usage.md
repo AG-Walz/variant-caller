@@ -22,8 +22,16 @@ nextflow run "$SAREK_DIR" \
   -resume
 ```
 
-`SAREK_DIR` defaults to `../sarek` (the local clone; there is no public sarek 3.9.0 — this
-clone is customised). It is a variable in `run_pilot.sh` so you can point it elsewhere.
+`SAREK_DIR` defaults to `../sarek` — a **sibling clone of upstream `nf-core/sarek` at tag
+3.9.0**, wrapped by path rather than vendored or forked. It is a variable in `run_pilot.sh` so
+you can point it elsewhere.
+
+> **Corrected 2026-07-24.** Earlier revisions of this file claimed *"there is no public sarek
+> 3.9.0 — this clone is customised"*. That is **false**: tag `3.9.0` is published on
+> `github.com/nf-core/sarek` (commit `b97952e`), and the clone here is identical to it, with no
+> local modifications. Any box can reproduce it with `git clone` + `git checkout 3.9.0`, which
+> is what `scripts/setup_env.sh` does. `tests/check_environment.sh` warns if the clone it finds
+> has drifted from the tag or carries local edits.
 
 ### What each flag does
 
