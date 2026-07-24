@@ -181,6 +181,19 @@ def assert_vcf(path, tumour, normal):
             "--germline_resource was passed)"
         )
 
+    # --- CHECK 6b: at least one PASS record -------------------------------
+    # A VCF where FilterMutectCalls rejected EVERY record satisfies every
+    # structural check above, yet downstream `bcftools view -f PASS` yields an
+    # empty file with no error. That silent-empty path is the one the decision
+    # record calls out, so zero PASS is a contract failure, not a warning.
+    if n_pass == 0:
+        raise ContractError(
+            "CHECK filter-pass: FILTER is populated but NO record is PASS "
+            f"({n_records} records, filters seen: {sorted(filters_seen)}) -- "
+            "downstream 'bcftools view -f PASS' would silently yield zero "
+            "variants"
+        )
+
     # --- CHECK 7: GRCh38 contigs ------------------------------------------
     if not has_contig:
         raise ContractError("CHECK contigs: no ##contig= line found in header")

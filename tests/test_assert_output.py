@@ -129,6 +129,19 @@ class AssertOutputTests(unittest.TestCase):
             assert_vcf(p, TUMOUR, NORMAL)
         self.assertIn("filter", str(cm.exception).lower())
 
+    # --- CHECK 6b: FILTER populated but zero PASS -------------------------
+    def test_filter_populated_but_no_pass(self):
+        # every record rejected: structurally perfect, downstream empty.
+        p = self._write(GOOD_NAME, build_vcf(filters=("weak_evidence", "germline")))
+        with self.assertRaises(ContractError) as cm:
+            assert_vcf(p, TUMOUR, NORMAL)
+        self.assertIn("filter-pass", str(cm.exception))
+
+    def test_single_pass_record_is_enough(self):
+        p = self._write(GOOD_NAME, build_vcf(filters=("PASS",)))
+        summary = assert_vcf(p, TUMOUR, NORMAL)
+        self.assertEqual(summary["n_pass"], 1)
+
     # --- CHECK 4: wrong column names --------------------------------------
     def test_wrong_column_names(self):
         # columns disagree with CLI/headers

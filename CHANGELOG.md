@@ -24,7 +24,8 @@ favour of a lean FASTQ-first orchestration repo mirroring the sibling `fastq-to-
 - `scripts/run_pilot.sh` — the pinned minimal `nextflow run ../sarek` for the pilot pair
   (`-profile docker`, `--step mapping --tools mutect2 --wes`, explicit references,
   `--germline_resource`, `--skip_tools baserecalibrator,fastqc,mosdepth,samtools,multiqc,bcftools,vcftools`,
-  `--markduplicates_pixel_distance 2500 --trim_nextseq --nucleotides_per_second 1000 -resume`).
+  `--markduplicates_pixel_distance 2500 --trim_fastq --trim_nextseq --save_reference
+  --nucleotides_per_second 1000 -resume`).
 - `bin/assert_output.py` — enforce the output contract on the produced VCF (pure python3+gzip).
 - `assets/pilot_declarations.tsv` and `assets/samplesheet_pilot_example.csv` — example inputs.
 - `nextflow.config` — minimal per-process resource override passed to sarek via `-c`.
@@ -35,9 +36,10 @@ favour of a lean FASTQ-first orchestration repo mirroring the sibling `fastq-to-
 ### Contract
 
 - **Deliverable:** `variant_calling/<T>_vs_<N>/<T>_vs_<N>.mutect2.filtered.vcf.gz` — bgzipped,
-  FILTER not uniformly `.`, exactly two genotype columns named for the declared tumour and
-  normal, `##tumor_sample=`/`##normal_sample=` matching, `FORMAT` contains `AF`, GRCh38
-  contigs present. Pilot: `S12944Nr11_vs_S12944Nr12.mutect2.filtered.vcf.gz`.
+  FILTER not uniformly `.`, **at least one `PASS` record**, exactly two genotype columns named
+  for the declared tumour and normal, `##tumor_sample=`/`##normal_sample=` matching, `FORMAT`
+  contains `AF`, GRCh38 contigs present.
+  Pilot: `S12944Nr11_vs_S12944Nr12.mutect2.filtered.vcf.gz`.
 - **Validator:** every sample has a declared label; exactly one `status=0` and at least one
   `status=1` per patient; zero-normal patients are rejected — **v1 is paired somatic only**.
 
@@ -49,4 +51,29 @@ selection; epitopeprediction handoff samplesheet; annotation / VEP; multiple cal
 
 ## [Unreleased]
 
-- Nothing yet.
+### Fixed
+
+- **`--trim_nextseq` was a silent no-op.** sarek gates FASTP on
+  `params.trim_fastq || params.split_fastq > 0 || params.umi_location`
+  (`subworkflows/local/fastq_preprocess_gatk/main.nf:107`), so the flag alone meant FASTP never
+  ran — no poly-G trim, no adapter trim, and no warning. `run_pilot.sh` now also passes
+  `--trim_fastq`. The reads are NovaSeq 6000 (2-colour chemistry), where poly-G tails are real.
+
+### Added
+
+- `--save_reference` in `run_pilot.sh`, so the ~87 GB / ~1 h bwa-mem2 index build is published
+  to `<outdir>/reference` and can be reused via `--bwamem2` for the remaining patients instead
+  of rebuilt (sarek's default is `save_reference = false`).
+- **Output contract: at least one `PASS` record.** A VCF where FilterMutectCalls rejected every
+  record passed every structural check while making downstream `bcftools view -f PASS` yield an
+  empty file with no error. `assert_output.py` now fails on `n_pass == 0` (check `filter-pass`).
+- `run_pilot.sh` pre-flight: every FASTQ named in the samplesheet must exist on this box.
+  sarek's `schema_input.json` sets `"exists": true` on `fastq_1`/`fastq_2`, so a samplesheet
+  carrying another machine's absolute paths is a hard launch failure; the check names the
+  missing files and the `build_samplesheet.py` command that fixes them.
+
+### Changed
+
+- `assets/samplesheet_pilot_example.csv` is documented as an **example** only. The samplesheet
+  is now expected to be regenerated on whichever box runs the pipeline; the declarations TSV is
+  the portable artefact.

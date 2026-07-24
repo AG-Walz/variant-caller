@@ -17,7 +17,8 @@ nextflow run "$SAREK_DIR" \
   --dict "$REF/Homo_sapiens_assembly38.dict" \
   --germline_resource "$REF/af-only-gnomad.hg38.vcf.gz" \
   --skip_tools baserecalibrator,fastqc,mosdepth,samtools,multiqc,bcftools,vcftools \
-  --markduplicates_pixel_distance 2500 --trim_nextseq \
+  --markduplicates_pixel_distance 2500 --trim_fastq --trim_nextseq \
+  --save_reference \
   -resume
 ```
 
@@ -40,7 +41,9 @@ clone is customised). It is a variable in `run_pilot.sh` so you can point it els
 | `--germline_resource af-only-gnomad.hg38.vcf.gz` | Mutect2 germline resource. **Also doubles** as the GetPileupSummaries / contamination source. |
 | `--skip_tools baserecalibrator,fastqc,mosdepth,samtools,multiqc,bcftools,vcftools` | Turn off BQSR and every QC/report tool. v1 produces one VCF, not a report bundle. |
 | `--markduplicates_pixel_distance 2500` | Integer (no default in this clone). |
-| `--trim_nextseq` | **Boolean** bare flag in this clone (maps to fastp `--trim_poly_g`). |
+| `--trim_fastq` | **Required for any trimming to happen at all.** FASTP only runs when `params.trim_fastq \|\| params.split_fastq > 0 \|\| params.umi_location` (`subworkflows/local/fastq_preprocess_gatk/main.nf:107`), so `--trim_nextseq` on its own is a **silent no-op**. Also enables fastp adapter trimming (`--detect_adapter_for_pe`). |
+| `--trim_nextseq` | **Boolean** bare flag in this clone (maps to fastp `--trim_poly_g`). The reads are NovaSeq 6000 (2-colour chemistry), where poly-G tails are a real artefact class. Inert without `--trim_fastq`. |
+| `--save_reference` | Publish the built bwa-mem2 index to `<outdir>/reference`. The build costs ~87 GB RAM (`280 MB × ceil(fasta_size / 10 MB)`, `modules/nf-core/bwamem2/index/main.nf:5`) and ~1 h; saving it lets later patients reuse it via `--bwamem2` instead of rebuilding. |
 | `-resume` | Reuse completed work in the same `--outdir`. Alignment dominates runtime, so resuming after a downstream failure costs minutes, not hours. Safe to use routinely. |
 
 ### Why `--germline_resource` is mandatory, not optional

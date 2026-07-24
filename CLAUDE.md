@@ -38,10 +38,15 @@ scripts/fetch_references.sh          # once → references/
 bin/build_target_bed.sh /mnt/volume/data/DNA/00_metrics/<sample>.target.counts.gc-corrected.gz \
     references/target_pad30.bed      # once
 bin/build_samplesheet.py --declarations assets/pilot_declarations.tsv \
-    --fastq-dir /mnt/volume/data/fastq-example-data/UrCA/01_fastq \
-    --out assets/samplesheet_pilot_example.csv   # optional; an example is committed
-scripts/run_pilot.sh                 # runs the pinned command AND the assertion
+    --fastq-dir <FASTQ dir ON THIS BOX> \
+    --out assets/samplesheet_pilot.csv           # REQUIRED: paths are absolute
+INPUT=assets/samplesheet_pilot.csv scripts/run_pilot.sh   # pinned command AND the assertion
 ```
+
+`assets/samplesheet_pilot_example.csv` is an **example** carrying one box's absolute paths.
+sarek's `schema_input.json` sets `"exists": true` on `fastq_1`/`fastq_2`, so it must be
+regenerated wherever the run happens; `run_pilot.sh` pre-flights this and refuses to launch
+otherwise.
 
 `run_pilot.sh` calls `bin/assert_output.py --tumour S12944Nr11 --normal S12944Nr12 <vcf>`
 itself once the VCF is produced.
@@ -60,13 +65,22 @@ nextflow run ../sarek -profile docker -c <RESOURCE_CONFIG> \
   --fasta Homo_sapiens_assembly38.fasta --fasta_fai ...fasta.fai --dict ...dict \
   --germline_resource af-only-gnomad.hg38.vcf.gz \
   --skip_tools baserecalibrator,fastqc,mosdepth,samtools,multiqc,bcftools,vcftools \
-  --markduplicates_pixel_distance 2500 --trim_nextseq -resume
+  --markduplicates_pixel_distance 2500 --trim_fastq --trim_nextseq \
+  --save_reference -resume
 ```
 
 ## Key domain facts
 
-- **`--trim_nextseq` and `--wes` are boolean** bare flags in this clone; `--nucleotides_per_second`
-  (default 200000, we use 1000) and `--markduplicates_pixel_distance` are integers.
+- **`--trim_fastq`, `--trim_nextseq`, `--wes` and `--save_reference` are boolean** bare flags in
+  this clone; `--nucleotides_per_second` (default 200000, we use 1000) and
+  `--markduplicates_pixel_distance` are integers.
+- **`--trim_nextseq` alone does nothing.** FASTP is gated on
+  `params.trim_fastq || params.split_fastq > 0 || params.umi_location`
+  (`subworkflows/local/fastq_preprocess_gatk/main.nf:107`) — without `--trim_fastq` the process
+  never runs and no poly-G trim happens, silently. The reads are NovaSeq 6000 (2-colour).
+- **The bwa-mem2 index build needs ~87 GB RAM** (`280 MB × ceil(fasta_size / 10 MB)`,
+  `modules/nf-core/bwamem2/index/main.nf:5`). This is why the run is highmem-only, and why we
+  pass `--save_reference` (sarek's default `save_reference = false` throws the index away).
 - **`--germline_resource` doubles** as the GetPileupSummaries/contamination source. Without it,
   the clone **silently** publishes the *unfiltered* VCF (FILTER all `.`) — so passing it is
   required and `assert_output.py` is a mandatory safety net.

@@ -54,14 +54,15 @@ bin/build_target_bed.sh \
   references/target_pad30.bed
 
 # 3. Build the sarek samplesheet from a declarations TSV + the FASTQ directory.
-#    (optional for the pilot — assets/samplesheet_pilot_example.csv is already committed)
+#    REQUIRED, and on the box that will run it: the sheet carries absolute paths and
+#    sarek's schema sets "exists": true on them. The committed CSV is only an example.
 bin/build_samplesheet.py --declarations assets/pilot_declarations.tsv \
-    --fastq-dir /mnt/volume/data/fastq-example-data/UrCA/01_fastq \
-    --out assets/samplesheet_pilot_example.csv
+    --fastq-dir <the FASTQ directory on THIS box> \
+    --out assets/samplesheet_pilot.csv
 
 # 4. Run the pinned minimal sarek command for the pilot pair.
 #    (run_pilot.sh runs the output assertion itself once the VCF is produced)
-scripts/run_pilot.sh
+INPUT=assets/samplesheet_pilot.csv scripts/run_pilot.sh
 ```
 
 `run_pilot.sh` ends by calling the assertion for you. To re-check a VCF by hand:

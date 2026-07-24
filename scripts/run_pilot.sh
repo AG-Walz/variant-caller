@@ -79,12 +79,45 @@ actual_header="$(head -n1 "$INPUT" | tr -d '\r')"
        expected: $EXPECTED_HEADER
        found:    $actual_header"
 
+# Every FASTQ named in the samplesheet must exist ON THIS BOX. sarek's
+# schema_input.json sets "exists": true on fastq_1/fastq_2, so a stale absolute
+# path is a hard launch failure -- but only after Nextflow has started. Catch it
+# here, and say what to do about it. The committed CSV is an EXAMPLE carrying one
+# box's paths; the samplesheet is meant to be regenerated where the run happens.
+missing=()
+while IFS=, read -r _patient _sex _status _sample _lane fq1 fq2; do
+    [[ -n "${fq1:-}" ]] || continue
+    [[ -f "$fq1" ]] || missing+=("$fq1")
+    [[ -z "${fq2:-}" || -f "$fq2" ]] || missing+=("$fq2")
+done < <(tail -n +2 "$INPUT" | tr -d '\r')
+
+if (( ${#missing[@]} > 0 )); then
+    die "samplesheet $INPUT names ${#missing[@]} FASTQ file(s) that do not exist here:
+       $(printf '%s\n       ' "${missing[@]}")
+       Regenerate the samplesheet on THIS box before launching:
+         bin/build_samplesheet.py \\
+             --declarations assets/pilot_declarations.tsv \\
+             --fastq-dir <the FASTQ directory on this box> \\
+             --out <samplesheet.csv>
+       then re-run with INPUT=<samplesheet.csv>."
+fi
+
 echo "Pre-flight checks passed. Launching sarek..."
 echo "  SAREK_DIR = $SAREK_DIR"
 echo "  INPUT     = $INPUT"
 echo "  OUTDIR    = $OUTDIR"
 
 # --- The pinned minimal sarek invocation (v1) ----------------------
+# Two flags that are easy to get wrong, both verified against the clone:
+#   --trim_fastq    MANDATORY to make --trim_nextseq do anything. FASTP only
+#                   runs when `params.trim_fastq || params.split_fastq > 0 ||
+#                   params.umi_location` (fastq_preprocess_gatk/main.nf:107),
+#                   so --trim_nextseq ALONE is a silent no-op. The reads are
+#                   NovaSeq 6000 (2-colour), where poly-G tails are real.
+#   --save_reference  publishes the bwa-mem2 index to <outdir>/reference. The
+#                   index build costs ~87 GB RAM (280 MB x ceil(fasta/10 MB))
+#                   and ~1 h; saving it lets the remaining patients reuse it
+#                   via --bwamem2 instead of rebuilding.
 nextflow run "$SAREK_DIR" \
     -profile docker -c "$RESOURCE_CONFIG" \
     --step mapping --tools mutect2 --wes --igenomes_ignore true \
@@ -93,7 +126,8 @@ nextflow run "$SAREK_DIR" \
     --fasta "$FASTA" --fasta_fai "$FAI" --dict "$DICT" \
     --germline_resource "$GNOMAD" \
     --skip_tools baserecalibrator,fastqc,mosdepth,samtools,multiqc,bcftools,vcftools \
-    --markduplicates_pixel_distance 2500 --trim_nextseq \
+    --markduplicates_pixel_distance 2500 --trim_fastq --trim_nextseq \
+    --save_reference \
     -resume
 
 # --- Locate the somatic VCF and assert the output contract ---------

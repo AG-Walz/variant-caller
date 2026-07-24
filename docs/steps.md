@@ -60,20 +60,27 @@ read by sarek as a per-region runtime estimate and silently break the interval s
 canonical pad-30 output is checksum-verified (region and bp counts), so a wrong or changed
 input file fails hard rather than silently.
 
-## 4. Build the pilot samplesheet (optional — an example is committed)
+## 4. Build the pilot samplesheet — **on the box that will run it**
 
-`assets/samplesheet_pilot_example.csv` is already in the repo and is what `run_pilot.sh` uses
-by default, so for the pilot you can skip straight to step 5. Run this only to regenerate it or
-to build a sheet for other samples. It merges the declarations TSV (which sample is which
-patient / label) with auto-discovery of the FASTQ files (R1/R2 pairing, sample id, lane),
-validates it, and writes the sarek samplesheet.
+Do not skip this. The samplesheet carries **absolute** FASTQ paths, and sarek's
+`assets/schema_input.json` sets `"exists": true` on `fastq_1`/`fastq_2`, so a path that is
+right on one machine is a hard launch failure on another. `assets/samplesheet_pilot_example.csv`
+is committed as an **example** and carries one box's paths; regenerate it wherever the run
+actually happens. (`run_pilot.sh` pre-flights this and refuses to launch if any FASTQ in the
+sheet is missing, naming the files and this command.)
+
+The declarations TSV is the portable artefact — it names samples, not paths. The builder merges
+it with auto-discovery of the FASTQ files (R1/R2 pairing, sample id, lane), validates, and
+writes the sarek samplesheet.
 
 ```bash
 bin/build_samplesheet.py \
   --declarations assets/pilot_declarations.tsv \
-  --fastq-dir /mnt/volume/data/fastq-example-data/UrCA/01_fastq \
-  --out assets/samplesheet_pilot_example.csv
+  --fastq-dir <the FASTQ directory on THIS box> \
+  --out assets/samplesheet_pilot.csv
 ```
+
+Then run step 5 with `INPUT=assets/samplesheet_pilot.csv`.
 
 `assets/pilot_declarations.tsv` declares (header row optional):
 
@@ -94,10 +101,12 @@ scripts/run_pilot.sh
 ```
 
 The script first runs pre-flight checks (nextflow + docker present and usable; references, BED,
-samplesheet, and resource `nextflow.config` in place; samplesheet header exactly correct), then
+samplesheet, and resource `nextflow.config` in place; samplesheet header exactly correct; every
+FASTQ named in the samplesheet exists on this box), then
 wraps the local `../sarek` clone with the pinned flags (`-profile docker`, `--step mapping`,
 `--tools mutect2`, `--wes`, the explicit reference files, `--germline_resource`,
-`--skip_tools ...`, `--trim_nextseq`, `-resume`; full command in [usage.md](usage.md)). It maps
+`--skip_tools ...`, `--trim_fastq --trim_nextseq`, `--save_reference`, `-resume`; full command
+in [usage.md](usage.md)). It maps
 the reads, marks duplicates, runs paired Mutect2 over the target, and runs FilterMutectCalls.
 Alignment dominates the runtime. `-resume` makes re-runs after a downstream hiccup cheap.
 Override any path via environment variables (`SAREK_DIR`, `OUTDIR`, `INPUT`, `TARGET_BED`,
