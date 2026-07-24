@@ -127,6 +127,14 @@ VEP; multiple callers; BQSR; MultiQC / QC bundle; a GUI. When editing docs, keep
 consistent with the pinned command and the output contract; do not reintroduce the parked
 pre-reversal vision as if it were v1.
 
+**v3 (recorded 2026-07-24, not started):** replace CeGaT's exome bioinformatics **Levels 2–5** —
+consume Level 1 (FASTQ + CSV) and deliver mapping, SNV/indel **and ROH** calling, annotation,
+CNV calling and variant comparison. Full mapping, the five real gaps and the decisions it
+reopens: **[`docs/roadmap.md`](docs/roadmap.md)**. Load-bearing fact: **sarek has no ROH support
+at all** (`modules/nf-core/bcftools/` has no `roh`, and `--tools` has no ROH entry) — it is the
+one Level 1–5 capability that is missing rather than merely switched off. Do **not** pull v3
+scope into v1.
+
 ## Where to work
 
 Develop only inside this repo. The siblings `../sarek`, `../fastq-to-fasta`, `../docs` are

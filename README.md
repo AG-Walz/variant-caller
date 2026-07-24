@@ -39,6 +39,10 @@ columns are the declared tumour and normal samples.
 These are not oversights; they are scope. Some are planned for v2 behind the same output
 contract; some belong to other pipelines.
 
+**Where this is going:** v3's goal is to replace CeGaT's exome bioinformatics **Levels 2–5** —
+take Level 1 (FASTQ + CSV) and deliver mapping, SNV/indel **and ROH** calling, annotation, CNV
+calling and variant comparison. See **[docs/roadmap.md](docs/roadmap.md)**.
+
 ## Quickstart (pilot: UrCa Nr11 tumour vs Nr12 normal)
 
 Run on the target box (Docker only, Nextflow in a `screen` session). End to end:
@@ -116,6 +120,7 @@ script). This repo never forks or edits sarek.
 | [Usage](docs/usage.md) | The pinned sarek command, flags, and target-box notes |
 | [Output](docs/output.md) | The single deliverable and the contract that guards it |
 | [Steps](docs/steps.md) | Numbered end-to-end runbook for the pilot |
+| [Roadmap](docs/roadmap.md) | v1 / v2 / v3 scope — incl. the CeGaT Level 2–5 replacement goal |
 
 ## Credits
 

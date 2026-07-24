@@ -88,6 +88,12 @@ selection; epitopeprediction handoff samplesheet; annotation / VEP; multiple cal
   is now expected to be regenerated on whichever box runs the pipeline; the declarations TSV is
   the portable artefact.
 
+- `docs/roadmap.md` — v1 / v2 / **v3** scope. v3 records the project's end goal, set by the
+  supervisor: consume CeGaT **Level 1** (FASTQ + CSV) and replace their exome bioinformatics
+  **Levels 2–5** — mapping, SNV/indel **and ROH** calling, annotation, CNV calling, and variant
+  comparison. Includes the level-by-level mapping to sarek, five capability gaps, the v1
+  decisions v3 reopens, and three open questions. Nothing in v1 changes.
+
 ### Corrected
 
 - **sarek 3.9.0 is public and this clone is stock.** `CLAUDE.md`, `README.md` and `docs/usage.md`
