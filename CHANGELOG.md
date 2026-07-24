@@ -94,6 +94,23 @@ selection; epitopeprediction handoff samplesheet; annotation / VEP; multiple cal
   comparison. Includes the level-by-level mapping to sarek, five capability gaps, the v1
   decisions v3 reopens, and three open questions. Nothing in v1 changes.
 
+- `bin/build_kit_bed.sh` — build the target BED from the **capture kit vendor's own files**,
+  which is now the canonical route. The kit is named in the delivery documents (*Twist Human Core
+  Exome + RefSeq + Mitochondrial Panel*, Twist Bioscience) and maps to exactly two hg38 files:
+  `Twist_Exome_RefSeq_targets_hg38.bed` (215,623 regions — Core Exome **and** RefSeq together) and
+  `Twist_MitoPanel_chrM_all_hg38_target.bed` (chrM). The separate Core-Exome-only file (192,262
+  regions) is **not** used. Downloads, unions, merges, pads 30 bp, and self-verifies.
+  `bin/build_target_bed.sh` is demoted to **verification only**.
+
+  **Proven, not assumed:** the kit union is 215,624 regions, of which **215,623 match the DRAGEN
+  target counts for this run exactly**; the sole difference is chrM (vendor `1–16569` vs counts
+  `113–16517`). CeGaT's `S000021` design is therefore the stock Twist files with **no**
+  customisation, so there is no need to wait for `S000021_hg38_targets.bed`.
+
+  **`--fai` clamping matters:** `chrM 1–16569` padded by 30 becomes `0–16599`, past the end of
+  chrM (16,569), and **GATK rejects out-of-bounds intervals**. With `--fai` the ends are clamped;
+  without it the script warns. Expected output: **214,494 regions / 49,633,134 bp**.
+
 ### Corrected
 
 - **sarek 3.9.0 is public and this clone is stock.** `CLAUDE.md`, `README.md` and `docs/usage.md`

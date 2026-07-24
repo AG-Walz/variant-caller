@@ -25,7 +25,7 @@ columns are the declared tumour and normal samples.
 ## What it does NOT do (v1 — all of this is v2 or downstream)
 
 - **No kit registry / bait BED / hybrid-capture QC.** One target BED, built once from the
-  DRAGEN target set. No capture-efficiency metrics.
+  capture kit vendor's files. No capture-efficiency metrics.
 - **No tumour-only mode.** v1 is paired somatic only. A patient without exactly one normal
   is a hard error, not a fallback.
 - **No role inference.** Labels and patient grouping are *declared* by the user, never
@@ -56,11 +56,14 @@ tests/check_environment.sh
 # 1. Download the reference bundle (genome + gnomAD germline resource). One-off, large.
 scripts/fetch_references.sh
 
-# 2. Build the 3-column target BED from a DRAGEN target-count file, padded 30 bp. One-off.
-#    (the target set is identical across all 18 UrCa samples, so any one file works)
-bin/build_target_bed.sh \
-  /mnt/volume/data/DNA/00_metrics/<sample>.target.counts.gc-corrected.gz \
-  references/target_pad30.bed
+# 2. Build the 3-column target BED from the CAPTURE KIT VENDOR's files, padded 30 bp. One-off.
+#    Kit: Twist Human Core Exome + RefSeq + Mitochondrial Panel (from the project report).
+#    --fai is effectively required: it clamps chrM's padding to the contig length, which
+#    GATK rejects otherwise. --verify cross-checks against what was physically captured.
+bin/build_kit_bed.sh \
+  --out references/target_pad30.bed \
+  --fai references/Homo_sapiens_assembly38.fasta.fai \
+  --verify /mnt/volume/data/DNA/00_metrics/S000021_S12944Nr11.tumor.target.counts.gc-corrected.gz
 
 # 3. Build the sarek samplesheet from a declarations TSV + the FASTQ directory.
 #    REQUIRED, and on the box that will run it: the sheet carries absolute paths and
@@ -96,7 +99,8 @@ scripts/
   fetch_references.sh   download genome + gnomAD germline resource
   run_pilot.sh          the pinned minimal `nextflow run <sarek>` for the pilot pair
 bin/
-  build_target_bed.sh   DRAGEN target-count file → 3-column, 30 bp-padded target BED
+  build_kit_bed.sh      Twist kit BEDs → 3-column, 30 bp-padded target BED (canonical)
+  build_target_bed.sh   same BED reconstructed from DRAGEN counts (verification only)
   build_samplesheet.py  declarations TSV + FASTQ dir → sarek samplesheet (with validation)
   assert_output.py      enforce the output contract on the produced VCF
 assets/

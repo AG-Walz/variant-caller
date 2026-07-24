@@ -66,26 +66,46 @@ scripts/fetch_references.sh
 Expect several tens of GB. The gnomAD VCF doubles as the contamination source, so no separate
 small-exac file is needed.
 
-## 3. The target BED — PROVISIONAL, and a blocker (2026-07-24)
+## 3. Build the target BED from the kit vendor's files (canonical)
 
-> **The run is blocked until the authoritative kit BED is obtained.** Decided 2026-07-24: the
-> target BED must come from the **capture kit vendor / CeGaT**, not be reconstructed from DRAGEN
-> counts. The reconstruction below stays in the repo as a **verification tool**, not as the input.
->
-> - **Kit used for this run** (CTP somatic project report, p.3): **Twist Human Core Exome +
->   RefSeq + Mitochondrial Panel**, Twist Bioscience. 50 ng input; NovaSeq 6000, 2×101 bp.
-> - **Authoritative file: `S000021_hg38_targets.bed`.** Named verbatim in the DRAGEN command line
->   inside the delivered somatic VCF (`--vc-target-bed .../S000021_hg38_targets.bed
->   --vc-target-bed-padding 30`). It exists at CeGaT and was not delivered.
-> - **What WAS delivered is the wrong build**: `/mnt/volume/data/S000021_hg19_targets.bed` is
->   **hg19** — its `TP53`-labelled rows sit at `chr17:7,572,926` (hg19), whereas GRCh38 TP53 is at
->   `chr17:7,668,402+`. Only 1,427 of ~215,000 regions match the GRCh38 target set. Unusable.
-> - **`S000021` is CeGaT's own order-specific design ID** (it also appears in their panel-of-normals
->   path `S000021_EF_grch38`), so a stock Twist BED may not equal their composite.
-> - **Padding 30 bp is not our invention** — `--vc-target-bed-padding 30` is what CeGaT used.
->
-> **Action:** request `S000021_hg38_targets.bed` from CeGaT (route A), or obtain the Twist hg38
-> component BEDs (route B). Then verify against the reconstruction below before running.
+**Resolved 2026-07-24 — no need to wait for CeGaT.** The kit is named in the delivery documents
+(CTP somatic project report, p.3): **Twist Human Core Exome + RefSeq + Mitochondrial Panel**,
+Twist Bioscience (50 ng input; NovaSeq 6000, 2×101 bp). That name maps to exactly **two** hg38
+vendor files, and their union was **proven identical** to what this run actually captured.
+
+```bash
+bin/build_kit_bed.sh \
+  --out references/target_pad30.bed \
+  --fai references/Homo_sapiens_assembly38.fasta.fai \
+  --verify /mnt/volume/data/DNA/00_metrics/S000021_S12944Nr11.tumor.target.counts.gc-corrected.gz
+```
+
+It downloads both files, unions and merges them, pads 30 bp, and prints a verification table.
+
+| Vendor file | Regions | Use |
+|---|---|---|
+| `Twist_Exome_RefSeq_targets_hg38.bed` | 215,623 | ✅ **Core Exome + RefSeq, both in one file** |
+| `Twist_MitoPanel_chrM_all_hg38_target.bed` | 1 | ✅ chrM 1–16569 |
+| `Twist_Exome_Core_Covered_Targets_hg38.bed` | 192,262 | ❌ **not needed** — subsumed by the RefSeq file |
+
+**Why we trust it:** kit union = **215,624** regions, of which **215,623 match the DRAGEN target
+counts for this run exactly**. The single difference is chrM (vendor tiles `1–16569`, the counts
+report `113–16517`). So CeGaT's `S000021` design is the **stock Twist files with no
+customisation** — the earlier worry about a CeGaT-specific composite was unfounded.
+
+**Two traps this script handles for you:**
+
+- **`--fai` is not optional in practice.** `chrM 1–16569` padded by 30 becomes `0–16599`, past the
+  end of chrM (length 16,569), and **GATK rejects out-of-bounds intervals**. With `--fai` the ends
+  are clamped to contig lengths; without it the script warns loudly.
+- **Padding 30 bp is not our invention** — it is CeGaT's own DRAGEN setting
+  (`--vc-target-bed-padding 30`, from the delivered VCF header).
+
+Expected result: **214,494 regions / 49,633,134 bp**.
+
+**Do not use the BED shipped in the delivery.** `/mnt/volume/data/S000021_hg19_targets.bed` is
+**hg19** — its `TP53`-labelled rows sit at `chr17:7,572,926`, whereas GRCh38 TP53 is at
+`chr17:7,668,402+`, and only 1,427 of ~215,000 regions match the GRCh38 target set.
 
 ## 3b. Reconstruct the target BED from DRAGEN counts (verification only)
 

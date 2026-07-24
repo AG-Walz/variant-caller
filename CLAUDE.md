@@ -24,8 +24,13 @@ This repo adds `bin/` helper tools and `tests/` for soundness.
   hard requirement is unmet. Named `check_*` so the `tests/test_*` glob stays the unit tests.
 - `scripts/fetch_references.sh` — download GRCh38 + gnomAD germline resource into `references/`.
 - `scripts/run_pilot.sh` — the pinned minimal `nextflow run ../sarek ...` for the pilot pair.
-- `bin/build_target_bed.sh <counts.gc-corrected.gz> <out.bed> [--pad N]` — DRAGEN target-count
-  file → **3-column, 30 bp-padded** target BED (canonical pad-30 output is checksum-verified).
+- `bin/build_kit_bed.sh --out <bed> --fai <ref.fai> [--verify <counts.gz>]` — **canonical** target
+  BED, built from the capture kit vendor's own files (Twist `..._RefSeq_targets_hg38.bed` +
+  `..._MitoPanel_chrM_all_hg38_target.bed`). `--fai` clamps padded ends to contig lengths; without
+  it `chrM` runs past its end and GATK rejects the interval.
+- `bin/build_target_bed.sh <counts.gc-corrected.gz> <out.bed> [--pad N]` — the same BED
+  reconstructed from DRAGEN counts. **Verification only**, not the input: it is the only evidence
+  of what was physically captured, so use it to check the kit BED.
 - `bin/build_samplesheet.py --declarations <tsv> --fastq-dir <dir> --out <csv>` — validated
   sarek samplesheet.
 - `bin/assert_output.py --tumour <id> --normal <id> <vcf>` — enforce the output contract on the
