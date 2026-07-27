@@ -43,7 +43,7 @@ you can point it elsewhere.
 | `--tools mutect2` | GATK Mutect2, the only caller in v1. |
 | `--wes` | Boolean in this clone's schema. Whole-exome / targeted mode. |
 | `--igenomes_ignore true` | Do not resolve references from iGenomes; we pass every file explicitly. |
-| `--intervals <target_pad30.bed>` | Restrict calling to the padded capture target. Must be **exactly 3 columns** (see below). |
+| `--intervals <target_pad30.bed>` | Restrict calling to the padded capture target. Must be **exactly 3 columns** and in **reference contig order** (see below). |
 | `--nucleotides_per_second 1000` | Integer (clone default 200000). Controls interval scatter granularity. |
 | `--fasta` / `--fasta_fai` / `--dict` | GRCh38 reference and its indexes, passed explicitly. |
 | `--germline_resource af-only-gnomad.hg38.vcf.gz` | Mutect2 germline resource. **Also doubles** as the GetPileupSummaries / contamination source. |
@@ -73,14 +73,29 @@ filename and the two named genotype columns.
 
 ## The target BED
 
-Built once by `bin/build_target_bed.sh <counts.gc-corrected.gz> <output.bed> [--pad N]` from a
-DRAGEN target-count file, padded 30 bp (the default). The target set is identical across all 18
-UrCa samples, so any one `*.target.counts.gc-corrected.gz` works; the canonical pad-30 output is
-checksum-verified (region and bp counts) so a wrong or changed input file is a hard error. The
-BED **must be exactly 3 columns** (`chrom  start  end`). This clone's
-`create_intervals_bed` reads **column 5** of `--intervals` as a per-region *runtime-seconds*
-estimate; any extra columns make the interval scatter silently wrong. Padding is **30 bp**
-(not 100).
+Built once by `bin/build_kit_bed.sh --out <bed> --fai <ref.fai>` from the capture kit vendor's
+own files, padded 30 bp (the default; it is CeGaT's own DRAGEN
+`--vc-target-bed-padding 30`, not our invention). `bin/build_target_bed.sh
+<counts.gc-corrected.gz> <output.bed> --fai <ref.fai> [--pad N]` reconstructs the same set from
+a DRAGEN target-count file and exists **only to verify** the kit BED; its canonical pad-30
+output is checksum-verified (region and bp counts) so a wrong or changed input is a hard error.
+The target set is identical across all 18 UrCa samples, so any one counts file works.
+
+Two properties of the BED are load-bearing, and both fail silently if you get them wrong:
+
+**Exactly 3 columns** (`chrom  start  end`). This clone's `create_intervals_bed` reads
+**column 5** of `--intervals` as a per-region *runtime-seconds* estimate; any extra column makes
+the interval scatter silently wrong.
+
+**Rows in the reference's contig order** (from the `.fai`), never lexicographic. `sort -k1,1`
+sorts contig *names as strings*, so `chr19` precedes `chr2` and `chrM` precedes `chrX`. sarek
+reads `--intervals` in the order given, and GATK's `GatherPileupSummaries` assumes the shards it
+gathers are in sequence-dictionary order — so a lexicographic BED yields a gathered pileup table
+whose records run backwards, and `CalculateContamination` fails with
+`Invalid interval. Contig:chr22 start:42062823 end:40827186`. This is what killed the first
+pilot run on 2026-07-27. `sort -V` is **not** a fix (it still misplaces `chrM`). Both builders
+now require `--fai`, order by it, and assert the result before writing, so a mis-ordered BED
+cannot leave either tool.
 
 ## Target-box notes (peptimine_highmem1)
 

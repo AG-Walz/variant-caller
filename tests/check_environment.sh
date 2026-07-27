@@ -144,7 +144,22 @@ check_file "reference fasta" "${REFERENCES_DIR}/Homo_sapiens_assembly38.fasta" "
 check_file "reference .fai"  "${REFERENCES_DIR}/Homo_sapiens_assembly38.fasta.fai" "scripts/fetch_references.sh"
 check_file "reference .dict" "${REFERENCES_DIR}/Homo_sapiens_assembly38.dict" "scripts/fetch_references.sh"
 check_file "germline resource" "${REFERENCES_DIR}/af-only-gnomad.hg38.vcf.gz" "scripts/fetch_references.sh"
-check_file "target BED" "${REFERENCES_DIR}/target_pad30.bed" "bin/build_target_bed.sh"
+check_file "target BED" "${REFERENCES_DIR}/target_pad30.bed" "bin/build_kit_bed.sh"
+
+# The BED must be in the REFERENCE's contig order, not lexicographic: sarek reads
+# --intervals in the order given and GATK's GatherPileupSummaries assumes dictionary
+# order, so a chr19-before-chr2 BED fails the run in CalculateContamination, ~15
+# minutes in. A BED built before 2026-07-27 (or by hand) is very likely wrong.
+if [ -f "${REFERENCES_DIR}/target_pad30.bed" ] && [ -f "${REFERENCES_DIR}/Homo_sapiens_assembly38.fasta.fai" ]; then
+    # shellcheck source=../bin/lib_bed.sh
+    . "${REPO_DIR}/bin/lib_bed.sh"
+    if bed_assert_fai_sorted "${REFERENCES_DIR}/Homo_sapiens_assembly38.fasta.fai" \
+                             "${REFERENCES_DIR}/target_pad30.bed" 2>/dev/null; then
+        pass "target BED order" "3 cols, reference contig order, in-bounds, non-overlapping"
+    else
+        fail "target BED order" "not a valid sarek --intervals BED -- rebuild: bin/build_kit_bed.sh --out ${REFERENCES_DIR}/target_pad30.bed --fai ${REFERENCES_DIR}/Homo_sapiens_assembly38.fasta.fai"
+    fi
+fi
 
 # Samplesheet: absolute paths are host-specific and sarek sets "exists": true.
 if [ -n "$INPUT" ]; then

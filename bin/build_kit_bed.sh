@@ -26,15 +26,21 @@
 # Output is EXACTLY 3 columns: sarek's create_intervals_bed reads column 5 as a
 # per-region runtime estimate, so any extra column silently breaks the scatter.
 #
+# Contig order: rows are emitted in the REFERENCE's contig order (from the .fai),
+# never lexicographic. `sort -k1,1` puts chr19 before chr2 and chrM before chrX;
+# sarek reads --intervals in the order given and GATK's GatherPileupSummaries
+# assumes dictionary order, so a lexicographic BED makes CalculateContamination
+# die on a reversed interval. See bin/lib_bed.sh. (`sort -V` is not a fix either.)
+#
 # Usage:
 #   build_kit_bed.sh --out references/target_pad30.bed \
-#                    [--fai references/Homo_sapiens_assembly38.fasta.fai] \
+#                    --fai references/Homo_sapiens_assembly38.fasta.fai \
 #                    [--refseq FILE] [--mito FILE] [--pad N] \
 #                    [--verify <counts.gc-corrected.gz>]
 #
-#   --fai      reference .fai; used to CLAMP padded ends to the contig length.
-#              Strongly recommended: chrM 1-16569 padded by 30 would otherwise
-#              become 0-16599, past the end of chrM, and GATK rejects that.
+#   --fai      REQUIRED. reference .fai. Defines the contig ORDER of the output
+#              and CLAMPS padded ends to the contig length (chrM 1-16569 padded
+#              by 30 would otherwise end at 16599, and GATK rejects that).
 #   --refseq   local copy of the Twist RefSeq BED   (default: download)
 #   --mito     local copy of the Twist Mito BED     (default: download)
 #   --pad      symmetric padding in bp              (default: 30)
@@ -44,6 +50,9 @@
 
 set -euo pipefail
 export LC_ALL=C
+
+# shellcheck source=bin/lib_bed.sh
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib_bed.sh"
 
 TWIST_BASE="https://www.twistbioscience.com/content/dam/twistbioscience/resources"
 URL_REFSEQ="${URL_REFSEQ:-${TWIST_BASE}/2019-09/Twist_Exome_RefSeq_targets_hg38.bed}"
@@ -60,7 +69,7 @@ die() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 note() { printf '%s\n' "$*" >&2; }
 
 usage() {
-    sed -n '2,40p' "$0" | sed 's/^# \{0,1\}//' >&2
+    sed -n '2,49p' "$0" | sed 's/^# \{0,1\}//' >&2
     exit 2
 }
 
@@ -78,6 +87,11 @@ while [ $# -gt 0 ]; do
 done
 
 [ -n "$OUT" ] || usage
+# --fai is mandatory: it defines the output's contig ORDER (sarek/GATK require the
+# reference's order, not lexicographic) and the contig lengths used to clamp padding.
+[ -n "$FAI" ] || die "--fai is required: it defines the contig order and the contig lengths.
+       Pass --fai <reference>.fasta.fai (e.g. references/Homo_sapiens_assembly38.fasta.fai)."
+[ -f "$FAI" ] || die "--fai file not found: $FAI"
 case "$PAD" in ''|*[!0-9]*) die "--pad must be a non-negative integer, got: $PAD" ;; esac
 
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/build_kit_bed.XXXXXX")"
@@ -120,48 +134,43 @@ END { if (NR>0) print pc, ps, pe }
 cat "$REFSEQ" "$MITO" \
     | grep -v '^#' | grep -v '^track' | grep -v '^browser' \
     | awk -F'\t' 'NF>=3 && $2 ~ /^[0-9]+$/ && $3 ~ /^[0-9]+$/ {print $1"\t"$2"\t"$3}' \
-    | sort -k1,1 -k2,2n \
+    | bed_sort_by_fai "$FAI" \
     | awk "$MERGE_AWK" > "$WORK/noslop.bed"
 
 read -r NR_ NB_ < <(awk '{n++; b+=$3-$2} END {print n+0, b+0}' "$WORK/noslop.bed")
 note "kit union      : ${NR_} regions / ${NB_} bp"
 
 # --- stage 2: pad, clamp to contig bounds, re-merge ------------------------
-if [ -n "$FAI" ]; then
-    [ -f "$FAI" ] || die "--fai file not found: $FAI"
-    # Clamp the padded end to the contig length from the .fai (column 2).
-    # Without this, chrM 1-16569 padded by 30 becomes 0-16599 -- past the end of
-    # chrM -- and GATK rejects out-of-bounds intervals.
-    awk -F'\t' -v pad="$PAD" 'BEGIN{OFS="\t"}
-        NR==FNR { len[$1]=$2; next }
-        {
-            s=$2-pad; if (s<0) s=0;
-            e=$3+pad;
-            if (($1 in len) && e>len[$1]) e=len[$1];
-            if (e>s) print $1, s, e;
-        }' "$FAI" "$WORK/noslop.bed" \
-        | sort -k1,1 -k2,2n | awk "$MERGE_AWK" > "$OUT"
-    note "padding       : +${PAD} bp, ends clamped to contig lengths from $(basename "$FAI")"
-else
-    note "WARNING: no --fai given, so padded ends are NOT clamped to contig lengths."
-    note "         chrM +${PAD} bp will run past the end of chrM and GATK will reject it."
-    note "         Pass --fai <reference>.fasta.fai unless you know you don't need it."
-    awk -F'\t' -v pad="$PAD" 'BEGIN{OFS="\t"}
-        { s=$2-pad; if (s<0) s=0; print $1, s, $3+pad }' "$WORK/noslop.bed" \
-        | sort -k1,1 -k2,2n | awk "$MERGE_AWK" > "$OUT"
-fi
+# Clamp the padded end to the contig length from the .fai (column 2). Without
+# this, chrM 1-16569 padded by 30 becomes 0-16599 -- past the end of chrM -- and
+# GATK rejects out-of-bounds intervals.
+awk -F'\t' -v pad="$PAD" 'BEGIN{OFS="\t"}
+    NR==FNR { len[$1]=$2; next }
+    {
+        s=$2-pad; if (s<0) s=0;
+        e=$3+pad;
+        if (($1 in len) && e>len[$1]) e=len[$1];
+        if (e>s) print $1, s, e;
+    }' "$FAI" "$WORK/noslop.bed" \
+    | bed_sort_by_fai "$FAI" | awk "$MERGE_AWK" > "$OUT"
+note "padding       : +${PAD} bp, ends clamped to contig lengths from $(basename "$FAI")"
 
 read -r PR_ PB_ < <(awk '{n++; b+=$3-$2} END {print n+0, b+0}' "$OUT")
 note "padded (+${PAD})  : ${PR_} regions / ${PB_} bp"
 
-ncol="$(awk -F'\t' 'NR==1{print NF; exit}' "$OUT")"
-[ "$ncol" = "3" ] || die "output has ${ncol} columns, must be exactly 3 (sarek reads col 5 as a runtime estimate)"
+# Hard gate: 3 columns, reference contig order, in-bounds, non-overlapping.
+# A BED that passes this cannot trip sarek/GATK's scatter-gather assumptions.
+bed_assert_fai_sorted "$FAI" "$OUT" || die "refusing to emit ${OUT}"
+note "validated     : 3 cols, contig order == $(basename "$FAI"), in-bounds, non-overlapping"
 
 # --- optional: verify against what was PHYSICALLY captured -----------------
 if [ -n "$VERIFY" ]; then
     [ -f "$VERIFY" ] || die "--verify file not found: $VERIFY"
     note ""
     note "verifying against the DRAGEN target counts (what was actually captured)..."
+    # Lexicographic sort is fine HERE and only here: this file is never emitted,
+    # it is compared set-wise via comm below, and merging only needs each contig's
+    # rows grouped and start-ordered -- which lexicographic sort also gives.
     zcat "$VERIFY" | tail -n +6 | cut -f1-3 | sort -k1,1 -k2,2n \
         | awk "$MERGE_AWK" > "$WORK/truth.bed"
     sort "$WORK/noslop.bed" > "$WORK/a.s"

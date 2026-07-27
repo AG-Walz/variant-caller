@@ -58,8 +58,9 @@ scripts/fetch_references.sh
 
 # 2. Build the 3-column target BED from the CAPTURE KIT VENDOR's files, padded 30 bp. One-off.
 #    Kit: Twist Human Core Exome + RefSeq + Mitochondrial Panel (from the project report).
-#    --fai is effectively required: it clamps chrM's padding to the contig length, which
-#    GATK rejects otherwise. --verify cross-checks against what was physically captured.
+#    --fai is REQUIRED: it sets the contig order (must be the reference's, not lexicographic —
+#    a chr19-before-chr2 BED breaks GATK's interval gather) and clamps chrM's padding to the
+#    contig length. --verify cross-checks against what was physically captured.
 bin/build_kit_bed.sh \
   --out references/target_pad30.bed \
   --fai references/Homo_sapiens_assembly38.fasta.fai \
@@ -99,6 +100,7 @@ scripts/
   fetch_references.sh   download genome + gnomAD germline resource
   run_pilot.sh          the pinned minimal `nextflow run <sarek>` for the pilot pair
 bin/
+  lib_bed.sh            shared BED ordering + validation (reference contig order, sourced below)
   build_kit_bed.sh      Twist kit BEDs → 3-column, 30 bp-padded target BED (canonical)
   build_target_bed.sh   same BED reconstructed from DRAGEN counts (verification only)
   build_samplesheet.py  declarations TSV + FASTQ dir → sarek samplesheet (with validation)
@@ -109,11 +111,31 @@ assets/
 nextflow.config         minimal resource-override config passed to sarek via `-c`
 tests/                  soundness checks for the helper tools
   check_environment.sh  read-only preflight: can THIS box run the pipeline?
+  test_lib_bed.sh       pins the BED ordering contract (synthetic; runs anywhere)
 docs/                   introduction, inputs, usage, output, steps
 ```
 
 The wrapped sarek clone lives beside this repo at `../sarek` (path is a variable in the run
 script). This repo never forks or edits sarek.
+
+## Two traps in the target BED
+
+Both are silent — the BED looks fine and the run fails much later, or not at all.
+
+1. **Exactly 3 columns.** sarek's `create_intervals_bed` reads column 5 as a per-region
+   runtime-seconds estimate, so a 4th or 5th column corrupts the interval scatter without any
+   error message.
+2. **Reference contig order, never lexicographic.** `sort -k1,1` orders contig *names as
+   strings*, putting `chr19` before `chr2` and `chrM` before `chrX`. sarek reads `--intervals`
+   in the order given, and GATK's `GatherPileupSummaries` assumes the shards come back in
+   sequence-dictionary order — so a lexicographic BED produces a gathered pileup table whose
+   records run backwards, and `CalculateContamination` fails with
+   `Invalid interval. Contig:chr22 start:42062823 end:40827186`. This killed the first pilot
+   run on 2026-07-27. **`sort -V` does not fix it** (it still misplaces `chrM`); only ordering
+   by the reference `.fai` does.
+
+Both builders enforce both rules via `bin/lib_bed.sh` and refuse to write a BED that violates
+them, so this cannot recur silently. `tests/test_lib_bed.sh` pins the contract.
 
 ## Documentation
 

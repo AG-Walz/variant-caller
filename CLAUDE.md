@@ -24,13 +24,18 @@ This repo adds `bin/` helper tools and `tests/` for soundness.
   hard requirement is unmet. Named `check_*` so the `tests/test_*` glob stays the unit tests.
 - `scripts/fetch_references.sh` — download GRCh38 + gnomAD germline resource into `references/`.
 - `scripts/run_pilot.sh` — the pinned minimal `nextflow run ../sarek ...` for the pilot pair.
+- `bin/lib_bed.sh` — shared BED ordering + validation, sourced by both builders.
+  `bed_sort_by_fai` orders rows by the **reference's** contig order; `bed_assert_fai_sorted` is
+  the hard gate (3 columns, known contigs, in-bounds, reference order, non-overlapping). Neither
+  builder can emit a BED that fails it.
 - `bin/build_kit_bed.sh --out <bed> --fai <ref.fai> [--verify <counts.gz>]` — **canonical** target
   BED, built from the capture kit vendor's own files (Twist `..._RefSeq_targets_hg38.bed` +
-  `..._MitoPanel_chrM_all_hg38_target.bed`). `--fai` clamps padded ends to contig lengths; without
-  it `chrM` runs past its end and GATK rejects the interval.
-- `bin/build_target_bed.sh <counts.gc-corrected.gz> <out.bed> [--pad N]` — the same BED
-  reconstructed from DRAGEN counts. **Verification only**, not the input: it is the only evidence
-  of what was physically captured, so use it to check the kit BED.
+  `..._MitoPanel_chrM_all_hg38_target.bed`). `--fai` is **required**: it sets the contig order and
+  clamps padded ends to contig lengths.
+- `bin/build_target_bed.sh <counts.gc-corrected.gz> <out.bed> --fai <ref.fai> [--pad N]` — the same
+  BED reconstructed from DRAGEN counts. **Verification only**, not the input: it is the only
+  evidence of what was physically captured, so use it to check the kit BED. `--fai` is required
+  here too, so it cannot emit a mis-ordered BED either.
 - `bin/build_samplesheet.py --declarations <tsv> --fastq-dir <dir> --out <csv>` — validated
   sarek samplesheet.
 - `bin/assert_output.py --tumour <id> --normal <id> <vcf>` — enforce the output contract on the
@@ -47,8 +52,8 @@ This repo adds `bin/` helper tools and `tests/` for soundness.
 scripts/setup_env.sh                 # fresh box: clone ../sarek 3.9.0 + install Nextflow
 tests/check_environment.sh           # verify (incl. Java 17+, Docker, RAM, sarek sibling)
 scripts/fetch_references.sh          # once → references/
-bin/build_target_bed.sh /mnt/volume/data/DNA/00_metrics/<sample>.target.counts.gc-corrected.gz \
-    references/target_pad30.bed      # once
+bin/build_kit_bed.sh --out references/target_pad30.bed \
+    --fai references/Homo_sapiens_assembly38.fasta.fai      # once (CANONICAL builder)
 bin/build_samplesheet.py --declarations assets/pilot_declarations.tsv \
     --fastq-dir <FASTQ dir ON THIS BOX> \
     --out assets/samplesheet_pilot.csv           # REQUIRED: paths are absolute
@@ -102,6 +107,15 @@ nextflow run ../sarek -profile docker -c <RESOURCE_CONFIG> \
   required and `assert_output.py` is a mandatory safety net.
 - **The target BED must be exactly 3 columns.** `create_intervals_bed` reads column 5 as a
   per-region runtime-seconds estimate; extra columns silently break the scatter.
+- **The target BED must be in the REFERENCE's contig order, never lexicographic.** This broke the
+  first pilot run (2026-07-27). `sort -k1,1` orders contig *names as strings*, so `chr19` lands
+  before `chr2` and `chrM` before `chrX`. sarek reads `--intervals` rows **in the order given**
+  and GATK's `GatherPileupSummaries` assumes the resulting shards are in sequence-dictionary
+  order, so a lexicographic BED yields a gathered pileup table whose records run backwards and
+  `CalculateContamination` dies with `Invalid interval. Contig:chr22 start:42062823 end:40827186`.
+  **`sort -V` is not a fix** — it still puts `chrM` before `chrX`. Always order by the `.fai`
+  (`bed_sort_by_fai` in `bin/lib_bed.sh`). Note the *interval content* is unaffected: merging is
+  per-contig, so only the row order is wrong — but that is enough to fail the run.
 - **Labels/patient grouping are DECLARED, never inferred.** The UrCa Nr-odd/even filename habit
   is a vendor convention; DRAGEN VCFs order genotype columns normal-then-tumour against a
   tumour-then-normal filename, so guessing is unsafe.
@@ -118,8 +132,10 @@ nextflow run ../sarek -profile docker -c <RESOURCE_CONFIG> \
 ## Dev-box constraints
 
 Helper tools must be dependency-light: **pure `python3` stdlib** (no pysam/pandas) and
-`awk`/coreutils bash only. On this dev box `docker`, `java`, `nextflow`, `bedtools`, `bgzip`,
-`tabix`, `shellcheck` are **not** available — validate with `bash -n` / `python3 -m py_compile`.
+`awk`/coreutils bash only. On this dev box `docker`, `java`, `nextflow`, `bgzip`, `tabix`,
+`shellcheck` are **not** available — validate with `bash -n` / `python3 -m py_compile`.
+(`bedtools` 2.31.1 was apt-installed on the dev box during a 2026-07-27 audit, but nothing in
+`bin/` may depend on it: the target box runs these helpers too.)
 
 ## Scope boundaries (v1 vs v2)
 

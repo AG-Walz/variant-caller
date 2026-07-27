@@ -93,13 +93,26 @@ counts for this run exactly**. The single difference is chrM (vendor tiles `1–
 report `113–16517`). So CeGaT's `S000021` design is the **stock Twist files with no
 customisation** — the earlier worry about a CeGaT-specific composite was unfounded.
 
-**Two traps this script handles for you:**
+**Three traps this script handles for you:**
 
-- **`--fai` is not optional in practice.** `chrM 1–16569` padded by 30 becomes `0–16599`, past the
-  end of chrM (length 16,569), and **GATK rejects out-of-bounds intervals**. With `--fai` the ends
-  are clamped to contig lengths; without it the script warns loudly.
+- **`--fai` is required.** It does two jobs. (1) It sets the **contig order** of the output —
+  see below. (2) It clamps padded ends: `chrM 1–16569` padded by 30 becomes `0–16599`, past the
+  end of chrM (length 16,569), and **GATK rejects out-of-bounds intervals**.
+- **Contig order must be the reference's, not lexicographic.** `sort -k1,1` sorts contig *names
+  as strings*, which puts `chr19` before `chr2` and `chrM` before `chrX`. sarek reads
+  `--intervals` rows **in the order given**, and GATK's `GatherPileupSummaries` assumes the
+  shards it gathers are in sequence-dictionary order. A lexicographic BED therefore produces a
+  gathered pileup table whose records run backwards, and `CalculateContamination` dies with
+  `Invalid interval. Contig:chr22 start:42062823 end:40827186`. **This failed the first pilot
+  run on 2026-07-27** at exactly the two order resets in the file (`chr19→chr2`, `chr22→chr3`;
+  a third, `chrM→chrX`, was latent). `sort -V` is **not** a fix — it still misplaces `chrM`.
+  The script now orders by the `.fai` and asserts the result before writing
+  (`bed_sort_by_fai` / `bed_assert_fai_sorted` in `bin/lib_bed.sh`).
 - **Padding 30 bp is not our invention** — it is CeGaT's own DRAGEN setting
   (`--vc-target-bed-padding 30`, from the delivered VCF header).
+
+The script prints a `validated :` line confirming 3 columns, `.fai` contig order, in-bounds
+coordinates and no overlaps. If that line is missing, the BED was not written.
 
 Expected result: **214,494 regions / 49,633,134 bp**.
 
@@ -111,14 +124,22 @@ Expected result: **214,494 regions / 49,633,134 bp**.
 
 Turns a DRAGEN target-count file into a **3-column**, **30 bp-padded** interval BED. The
 target set is identical across all 18 UrCa samples, so any one `*.target.counts.gc-corrected.gz`
-works and this is built once for the cohort. The run script expects it at
-`references/target_pad30.bed`.
+works.
+
+**This is not the file the pipeline consumes.** `references/target_pad30.bed` comes from step 3
+(`build_kit_bed.sh`); this tool exists only to cross-check that against the counts, which are
+the sole evidence of what was *physically* captured. Write it somewhere else so you cannot
+clobber the canonical BED:
 
 ```bash
 bin/build_target_bed.sh \
   /mnt/volume/data/DNA/00_metrics/<sample>.target.counts.gc-corrected.gz \
-  references/target_pad30.bed
+  /tmp/target_pad30.from_counts.bed \
+  --fai references/Homo_sapiens_assembly38.fasta.fai
 ```
+
+`--fai` is required here too, for the same contig-order reason as in step 3 — so this tool
+also cannot produce a mis-ordered BED, even though its output is only ever compared, not run.
 
 The output BED must be exactly 3 columns (`chrom  start  end`) — an extra column 5 would be
 read by sarek as a per-region runtime estimate and silently break the interval scatter. The

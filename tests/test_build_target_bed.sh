@@ -12,6 +12,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 TOOL="$SCRIPT_DIR/../bin/build_target_bed.sh"
 REAL_COUNTS="/mnt/volume/data/DNA/00_metrics/S000021_S12944Nr11.tumor.target.counts.gc-corrected.gz"
+REAL_FAI="$SCRIPT_DIR/../references/Homo_sapiens_assembly38.fasta.fai"
 
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/test_build_target_bed.XXXXXX")"
 trap 'rm -rf "$WORK"' EXIT
@@ -28,6 +29,13 @@ if [ ! -f "$REAL_COUNTS" ]; then
     printf 'SKIP: real counts file not present: %s\n' "$REAL_COUNTS"
     exit 0
 fi
+# references/ is gitignored, so the .fai is only present on a box that has run
+# scripts/fetch_references.sh. The ordering contract itself is covered without it
+# by tests/test_lib_bed.sh, which uses synthetic fixtures.
+if [ ! -f "$REAL_FAI" ]; then
+    printf 'SKIP: reference .fai not present: %s (run scripts/fetch_references.sh)\n' "$REAL_FAI"
+    exit 0
+fi
 
 # bash -n cleanliness of the tool itself.
 if bash -n "$TOOL"; then ok "bin/build_target_bed.sh parses clean (bash -n)"; else bad "bin/build_target_bed.sh has syntax errors"; fi
@@ -35,11 +43,19 @@ if bash -n "$TOOL"; then ok "bin/build_target_bed.sh parses clean (bash -n)"; el
 # --- main run (pad=30, canonical) ------------------------------------------
 OUT="$WORK/target_pad30.bed"
 ERRLOG="$WORK/stderr.log"
-if "$TOOL" "$REAL_COUNTS" "$OUT" >/dev/null 2>"$ERRLOG"; then
+if "$TOOL" "$REAL_COUNTS" "$OUT" --fai "$REAL_FAI" >/dev/null 2>"$ERRLOG"; then
     ok "tool exited 0 on real tumour counts file"
 else
     bad "tool exited non-zero (see below)"
     cat "$ERRLOG"
+fi
+
+# --fai is mandatory: without it the tool cannot know the reference contig order,
+# and a lexicographically ordered BED breaks sarek/GATK's interval scatter-gather.
+if "$TOOL" "$REAL_COUNTS" "$WORK/nofai.bed" >/dev/null 2>&1; then
+    bad "tool accepted a run with no --fai"
+else
+    ok "tool refuses to run without --fai"
 fi
 
 # exactly 3 columns on EVERY row.
@@ -59,6 +75,26 @@ else
     bad "unexpected contig set:"
     printf '  got:\n%s\n  expected:\n%s\n' "$GOT" "$EXPECTED"
 fi
+
+# CONTIG ORDER must match the reference .fai, not sort order. This is the
+# regression guard for the 2026-07-27 pilot failure: a lexicographic BED
+# (chr19 before chr2, chrM before chrX) makes sarek scatter intervals out of
+# sequence-dictionary order and GATK's CalculateContamination dies on a
+# reversed interval.
+FAI_ORDER="$(cut -f1 "$REAL_FAI" | grep -Fx -f <(cut -f1 "$OUT" | sort -u) | tr '\n' ' ')"
+BED_ORDER="$(cut -f1 "$OUT" | uniq | tr '\n' ' ')"
+if [ "$BED_ORDER" = "$FAI_ORDER" ]; then
+    ok "contig order matches the reference .fai (not lexicographic)"
+else
+    bad "contig order does not match the .fai:"
+    printf '  bed: %s\n  fai: %s\n' "$BED_ORDER" "$FAI_ORDER"
+fi
+
+# Each contig must appear as ONE contiguous block, and starts must ascend inside it.
+DUPBLOCK="$(cut -f1 "$OUT" | uniq | sort | uniq -d | wc -l)"
+if [ "$DUPBLOCK" -eq 0 ]; then ok "each contig appears as a single contiguous block"; else bad "$DUPBLOCK contigs are split across blocks"; fi
+BACKWARDS="$(awk -F'\t' '$1==pc && $2+0 < ps {c++} {pc=$1; ps=$2+0} END{print c+0}' "$OUT")"
+if [ "$BACKWARDS" -eq 0 ]; then ok "starts ascend within every contig"; else bad "$BACKWARDS rows go backwards within a contig"; fi
 
 # printed checksums (parsed from stderr banner).
 if grep -q 'no-slop : 215624 regions / 36731644 bp' "$ERRLOG"; then ok "no-slop checksum printed: 215624 regions / 36731644 bp"; else bad "no-slop checksum banner missing/incorrect"; fi

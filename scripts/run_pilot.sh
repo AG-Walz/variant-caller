@@ -102,6 +102,18 @@ if (( ${#missing[@]} > 0 )); then
        then re-run with INPUT=<samplesheet.csv>."
 fi
 
+# --- the intervals BED must satisfy sarek/GATK's assumptions -------
+# Fixing the builders is not enough: a BED built before 2026-07-27, or by hand,
+# can still be lexicographically ordered (chr19 before chr2, chrM before chrX).
+# sarek reads --intervals in the order given and GATK's GatherPileupSummaries
+# assumes dictionary order, so such a BED runs for ~15 minutes and then dies in
+# CalculateContamination on a reversed interval. Catch it here, before launch.
+# shellcheck source=../bin/lib_bed.sh
+. "${REPO_DIR}/bin/lib_bed.sh"
+bed_assert_fai_sorted "$FAI" "$TARGET_BED" || die "intervals BED is not valid for sarek: $TARGET_BED
+       Rebuild it (this also fixes contig order):
+         bin/build_kit_bed.sh --out $TARGET_BED --fai $FAI"
+
 echo "Pre-flight checks passed. Launching sarek..."
 echo "  SAREK_DIR = $SAREK_DIR"
 echo "  INPUT     = $INPUT"

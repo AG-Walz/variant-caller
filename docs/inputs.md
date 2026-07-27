@@ -114,9 +114,12 @@ Downloaded by `scripts/fetch_references.sh` into `references/` (git-ignored):
 | `Homo_sapiens_assembly38.fasta` (+ `.fai`, `.dict`) | GRCh38 reference; the coordinate system. Passed as `--fasta` / `--fasta_fai` / `--dict`. |
 | `af-only-gnomad.hg38.vcf.gz` (+ `.tbi`) | gnomAD germline resource. Passed as `--germline_resource`; **doubles** as the GetPileupSummaries / contamination source (no separate small-exac file needed). |
 
-The **target BED** is not downloaded — it is built once from the DRAGEN target-count files by
-`bin/build_target_bed.sh` (padded 30 bp, **exactly 3 columns**). See
-[usage.md](usage.md#the-target-bed) for why the column count matters.
+The **target BED** is not downloaded — it is built once from the capture kit vendor's files by
+`bin/build_kit_bed.sh` (padded 30 bp, **exactly 3 columns**, rows in **reference contig order**).
+`bin/build_target_bed.sh` reconstructs it from the DRAGEN target-count files for verification
+only. Both require `--fai`. See [usage.md](usage.md#the-target-bed) for why the column count and
+the contig order both matter — each fails silently, and the contig order broke the first pilot
+run.
 
 No panel of normals and no VEP cache are used in v1.
 
