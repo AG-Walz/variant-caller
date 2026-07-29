@@ -34,6 +34,8 @@ GNOMAD="${GNOMAD:-${REFERENCES_DIR}/af-only-gnomad.hg38.vcf.gz}"
 
 # Declared pilot pair (tumour vs normal). The output contract is checked
 # BY NAME against these — a tumour-only run would silently pass "two columns".
+# NOTE these are the BARE sample ids, which is what the output FILE is named
+# from. The names INSIDE the VCF are patient-prefixed; see PATIENT_ID below.
 TUMOUR_ID="${TUMOUR_ID:-S12944Nr11}"
 NORMAL_ID="${NORMAL_ID:-S12944Nr12}"
 
@@ -78,6 +80,16 @@ actual_header="$(head -n1 "$INPUT" | tr -d '\r')"
     die "samplesheet header mismatch in $INPUT
        expected: $EXPECTED_HEADER
        found:    $actual_header"
+
+# The patient id, read from column 1. It is NOT cosmetic: sarek writes the BAM
+# read group as SM:<patient>_<sample> (samplesheet_to_channel/main.nf:169), and
+# Mutect2 takes its genotype column names and its ##tumor_sample=/##normal_sample=
+# headers from SM. So the names INSIDE the VCF are patient-prefixed while the
+# FILE is named from the bare sample ids -- both are needed below.
+mapfile -t PATIENTS < <(tail -n +2 "$INPUT" | tr -d '\r' | cut -d, -f1 | sort -u)
+(( ${#PATIENTS[@]} == 1 )) || die "run_pilot.sh runs ONE patient; $INPUT declares ${#PATIENTS[@]}: ${PATIENTS[*]}
+       Split the samplesheet, or run sarek directly for a multi-patient cohort."
+PATIENT_ID="${PATIENT_ID:-${PATIENTS[0]}}"
 
 # Every FASTQ named in the samplesheet must exist ON THIS BOX. sarek's
 # schema_input.json sets "exists": true on fastq_1/fastq_2, so a stale absolute
@@ -152,4 +164,6 @@ VCF="$(find "${OUTDIR}/variant_calling" -type f -name "$VCF_NAME" 2>/dev/null | 
 
 echo "Found: $VCF"
 echo "Asserting v1 output contract..."
-python3 "$ASSERT" --tumour "$TUMOUR_ID" --normal "$NORMAL_ID" "$VCF"
+# Patient-prefixed on purpose -- the VCF's sample columns are SM names, not the
+# samplesheet's `sample` column. Passing the bare ids here fails a GOOD run.
+python3 "$ASSERT" --tumour "${PATIENT_ID}_${TUMOUR_ID}" --normal "${PATIENT_ID}_${NORMAL_ID}" "$VCF"

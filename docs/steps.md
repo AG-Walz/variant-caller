@@ -204,12 +204,14 @@ Override any path via environment variables (`SAREK_DIR`, `OUTDIR`, `INPUT`, `TA
 `<outdir>/variant_calling` and runs the assertion itself. To re-check by hand:
 
 ```bash
-bin/assert_output.py --tumour S12944Nr11 --normal S12944Nr12 \
+bin/assert_output.py --tumour P11_S12944Nr11 --normal P11_S12944Nr12 \
   results/variant_calling/S12944Nr11_vs_S12944Nr12/S12944Nr11_vs_S12944Nr12.mutect2.filtered.vcf.gz
 ```
 
 Passes only if: filename contains `_vs_` and ends `.mutect2.filtered.vcf.gz`; FILTER is not
-all `.`; exactly two genotype columns named `S12944Nr11` and `S12944Nr12`; `##tumor_sample=`
+all `.`; exactly two genotype columns named `P11_S12944Nr11` and `P11_S12944Nr12` (sarek writes
+`SM:<patient>_<sample>`, so the columns are patient-prefixed even though the FILE is named from
+the bare sample ids); `##tumor_sample=`
 / `##normal_sample=` match those names; `FORMAT` has `AF`; `##contig` (GRCh38) present. Any
 failure exits non-zero and names the first failed check. Full contract in
 [output.md](output.md).

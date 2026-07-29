@@ -81,7 +81,7 @@ INPUT=assets/samplesheet_pilot.csv scripts/run_pilot.sh
 `run_pilot.sh` ends by calling the assertion for you. To re-check a VCF by hand:
 
 ```bash
-bin/assert_output.py --tumour S12944Nr11 --normal S12944Nr12 \
+bin/assert_output.py --tumour P11_S12944Nr11 --normal P11_S12944Nr12 \
   results/variant_calling/S12944Nr11_vs_S12944Nr12/S12944Nr11_vs_S12944Nr12.mutect2.filtered.vcf.gz
 ```
 

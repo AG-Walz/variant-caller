@@ -122,6 +122,35 @@ class AssertOutputTests(unittest.TestCase):
             assert_vcf(p, TUMOUR, NORMAL)
         self.assertIn("filename", str(cm.exception))
 
+    # --- CHECK 4: the sarek patient-prefix trap ---------------------------
+    # sarek writes SM:<patient>_<sample>, so a real paired VCF has columns
+    # 'P11_S12944Nr11'/'P11_S12944Nr12' inside a file named from the BARE ids.
+    # Measured on the real pilot output (grave_franklin, 2026-07-28).
+    def test_sarek_prefixed_columns_pass_with_prefixed_ids(self):
+        pt, pn = "P11_" + TUMOUR, "P11_" + NORMAL
+        p = self._write(GOOD_NAME, build_vcf(tumor_tag=pt, normal_tag=pn, columns=(pt, pn)))
+        summary = assert_vcf(p, pt, pn)
+        self.assertEqual(summary["tumour"], pt)
+
+    def test_sarek_prefixed_columns_fail_with_bare_ids(self):
+        # This is what run_pilot.sh used to do: a GOOD run failing its own check.
+        pt, pn = "P11_" + TUMOUR, "P11_" + NORMAL
+        p = self._write(GOOD_NAME, build_vcf(tumor_tag=pt, normal_tag=pn, columns=(pt, pn)))
+        with self.assertRaises(ContractError) as cm:
+            assert_vcf(p, TUMOUR, NORMAL)
+        msg = str(cm.exception)
+        self.assertIn("columns", msg)
+        # the failure must NAME the trap, not just diff two lists
+        self.assertIn("HINT", msg)
+        self.assertIn("P11_", msg)
+
+    def test_no_hint_when_mismatch_is_not_a_prefix(self):
+        # a genuinely wrong pair must not be excused by a bogus hint
+        p = self._write(GOOD_NAME, build_vcf(tumor_tag="X", normal_tag="Y", columns=("X", "Y")))
+        with self.assertRaises(ContractError) as cm:
+            assert_vcf(p, TUMOUR, NORMAL)
+        self.assertNotIn("HINT", str(cm.exception))
+
     # --- CHECK 6: FILTER uniformly '.' ------------------------------------
     def test_filter_all_dots(self):
         p = self._write(GOOD_NAME, build_vcf(filters=(".", ".")))

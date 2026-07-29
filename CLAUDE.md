@@ -65,8 +65,10 @@ sarek's `schema_input.json` sets `"exists": true` on `fastq_1`/`fastq_2`, so it 
 regenerated wherever the run happens; `run_pilot.sh` pre-flights this and refuses to launch
 otherwise.
 
-`run_pilot.sh` calls `bin/assert_output.py --tumour S12944Nr11 --normal S12944Nr12 <vcf>`
-itself once the VCF is produced.
+`run_pilot.sh` calls `bin/assert_output.py` itself once the VCF is produced, passing the
+**patient-prefixed** sample names (`P11_S12944Nr11` / `P11_S12944Nr12`). sarek writes the read
+group as `SM:<patient>_<sample>`, so the VCF's genotype columns are prefixed while the FILE is
+named from the bare `sample` ids. Passing the bare ids fails a perfectly good run.
 
 Target box: 28 cores, ~503 GB RAM, **Docker only** (no singularity/apptainer), **Nextflow not
 pre-installed**, run in `screen`. So: always `-profile docker`; run scripts check for

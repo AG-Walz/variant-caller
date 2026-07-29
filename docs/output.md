@@ -39,8 +39,14 @@ the gzip module). It checks:
 2. The **FILTER column is not uniformly `.`** — FilterMutectCalls verdicts are present (`PASS`
    and/or named filters). A file that is all `.` means filtering did not run.
 3. **Exactly two genotype (SAMPLE) columns**, and their names **equal the declared tumour and
-   normal sample ids** — checked *by name*. "Two columns present" is not enough; a tumour-only
+   normal sample names** — checked *by name*. "Two columns present" is not enough; a tumour-only
    run also has columns.
+
+   **The names inside the VCF are patient-prefixed.** sarek writes the read group as
+   `SM:<patient>_<sample>` (`subworkflows/local/samplesheet_to_channel/main.nf:169`) and Mutect2
+   takes its column names from `SM`, so the pilot's columns are `P11_S12944Nr11` /
+   `P11_S12944Nr12` — inside a file named `S12944Nr11_vs_S12944Nr12...`. The **filename** uses
+   the bare `sample` ids; the **contents** use `<patient>_<sample>`. Pass the prefixed form.
 4. Headers `##tumor_sample=` and `##normal_sample=` are present and **match the two column
    names**.
 5. `FORMAT` contains **`AF`** (allele frequency).
@@ -51,7 +57,7 @@ On any failure it exits non-zero with a message naming the **first failed check*
 declared tumour and normal ids so the by-name column check (3, 4) can run:
 
 ```bash
-bin/assert_output.py --tumour S12944Nr11 --normal S12944Nr12 \
+bin/assert_output.py --tumour P11_S12944Nr11 --normal P11_S12944Nr12 \
   results/variant_calling/S12944Nr11_vs_S12944Nr12/S12944Nr11_vs_S12944Nr12.mutect2.filtered.vcf.gz
 ```
 

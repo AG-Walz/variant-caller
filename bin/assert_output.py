@@ -11,6 +11,10 @@ Contract checked (fail fast, first failure names the check):
   3. header carries ##tumor_sample=<X> and ##normal_sample=<Y>
   4. the #CHROM line has EXACTLY 2 sample columns, and the three sets agree:
         {tumour, normal} from CLI  ==  {X, Y} from headers  ==  the two #CHROM columns
+     The CLI names are the ones written INSIDE the VCF. For sarek output those are
+     the read-group SM values, i.e. <patient>_<sample> -- while the FILE is named
+     from the bare sample ids. Pass the prefixed form; _prefix_hint() explains this
+     at the point of failure if you do not.
   5. FORMAT column contains 'AF' on at least one record
   6. FILTER column is NOT uniformly '.' across data records (>=1 PASS or named filter)
   7. at least one ##contig= line, and contigs look like GRCh38 (chr-prefixed; chr1 present)
@@ -32,6 +36,31 @@ class ContractError(AssertionError):
 def _open_text(path):
     # gzip.open in text mode reads both bgzip and python-gzip outputs.
     return gzip.open(path, "rt", encoding="utf-8", errors="replace")
+
+
+def _prefix_hint(observed, declared):
+    """Name the patient-prefix trap when that is what the mismatch actually is.
+
+    sarek writes the read group as SM:<patient>_<sample>
+    (subworkflows/local/samplesheet_to_channel/main.nf:169), and Mutect2 takes the
+    genotype column names from SM -- while the FILE it emits is named from the bare
+    sample ids. So a perfectly good paired VCF has columns 'P11_S12944Nr11' /
+    'P11_S12944Nr12' inside a file called 'S12944Nr11_vs_S12944Nr12...'. Passing the
+    samplesheet's `sample` values here is the obvious thing to do and it is wrong;
+    say so instead of leaving the caller to diff two lists.
+    """
+    prefixes = {
+        s[: len(s) - len(d)] for d in declared for s in observed if s.endswith("_" + d)
+    }
+    if len(prefixes) != 1 or len(set(observed)) != len(declared):
+        return ""
+    pfx = prefixes.pop()
+    return (
+        f"\n  HINT: each column is a declared id prefixed with {pfx!r}. sarek names "
+        "the read group SM:<patient>_<sample>, so the VCF's sample columns are "
+        "patient-prefixed and only the FILENAME uses the bare sample ids. Re-run "
+        f"with --tumour {pfx}<tumour> --normal {pfx}<normal>."
+    )
 
 
 def assert_vcf(path, tumour, normal):
@@ -142,7 +171,7 @@ def assert_vcf(path, tumour, normal):
         raise ContractError(
             "CHECK columns: #CHROM sample columns "
             f"{sorted(chrom_set)} != declared {sorted(cli_samples)} "
-            "(--tumour/--normal)"
+            "(--tumour/--normal)" + _prefix_hint(chrom_samples, cli_samples)
         )
     if hdr_set != cli_samples:
         raise ContractError(
@@ -222,8 +251,16 @@ def main(argv=None):
         "Mutect2 filtered somatic VCF."
     )
     parser.add_argument("vcf", help="path to the *.mutect2.filtered.vcf.gz")
-    parser.add_argument("--tumour", required=True, help="declared tumour sample id")
-    parser.add_argument("--normal", required=True, help="declared normal sample id")
+    parser.add_argument(
+        "--tumour", required=True,
+        help="declared tumour sample name AS IT APPEARS IN THE VCF -- for sarek "
+             "output that is <patient>_<sample>, not the bare sample id",
+    )
+    parser.add_argument(
+        "--normal", required=True,
+        help="declared normal sample name as it appears in the VCF "
+             "(<patient>_<sample> for sarek output)",
+    )
     args = parser.parse_args(argv)
 
     try:
