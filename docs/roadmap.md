@@ -86,7 +86,7 @@ These are flagged, **not** resolved — v3 reopens them and they need explicit r
 - **QC stops being skippable.** v1 skips `fastqc,mosdepth,samtools,multiqc,bcftools,vcftools`
   because "v1 produces one VCF, not a report bundle". Levels 2 and 3 require the metrics, so
   that flag shrinks considerably.
-- **The output contract grows.** `assert_output.py` guards exactly one file. v3 delivers BAM,
+- **The output contract grows.** The v1 output contract covers exactly one file. v3 delivers BAM,
   VCFs, BED, CSV, JSON, TSV and GFF3 across four levels — each needs its own assertion, or the
   contract idea needs generalising.
 

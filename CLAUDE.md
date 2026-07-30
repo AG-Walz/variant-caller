@@ -68,10 +68,10 @@ per-row FASTQ path, aborting before any task — so those failures at least rema
 - **`--nucleotides_per_second 1000`** gives 83 Mutect2 shards; the default 200000 gives **one**.
 - **sarek writes the read group as `SM:<patient>_<sample>`**, so the VCF's genotype columns are
   patient-prefixed while the FILE is named from the bare sample ids. Passing the bare ids to
-  `assert_output.py` fails a perfectly good run.
+  the bare ids to a by-name check fails a perfectly good run.
 - **`patient` must be the individual (`P11`), never the order id `S000021`.**
-- **A swapped `status` is undetectable** by anything here or in sarek — `vc.py run` prints the
-  pairing table so the error is at least visible.
+- **A swapped `status` is undetectable** by anything here or in sarek. Read the samplesheet
+  before launching; nothing downstream will tell you.
 - Nextflow must be **25.10.x**: `get.nextflow.io` now installs 26.04.6, under which the pinned
   command aborts on a valid paired samplesheet.
 - The published **BWA-MEM1 index** at `gs://gcp-public-data--broad-references/hg38/v0/

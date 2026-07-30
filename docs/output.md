@@ -26,12 +26,12 @@ by [nf-core/epitopeprediction](https://github.com/nf-core/epitopeprediction), wh
 own tool versions; duplicating it here would eventually produce two silently disagreeing
 answers.
 
-## The output contract (enforced by `bin/assert_output.py`)
+## The output contract
 
 Because this sarek clone can *silently* produce a wrong-but-plausible VCF — an unfiltered file
 if `--germline_resource` were dropped, or a tumour-only file if a patient had no normal — the
-deliverable is not trusted until it passes an assertion. `bin/assert_output.py` is pure
-`python3` + the `gzip` module (no bcftools/tabix; a `.vcf.gz` written with bgzip is readable by
+deliverable is not trusted until it satisfies every clause below. Nothing enforces this
+automatically any more — check it by hand with the commands at the end of this section.
 the gzip module). It checks:
 
 1. The filename contains `_vs_` and ends `.mutect2.filtered.vcf.gz` (a `.tbi` index should
@@ -53,12 +53,15 @@ the gzip module). It checks:
 6. Reference is **GRCh38** — `##contig` lines present.
 
 On any failure it exits non-zero with a message naming the **first failed check**.
-`bin/vc.py run` calls it for you once the VCF is produced. To check by hand you pass the
+To check it by hand you pass the
 declared tumour and normal ids so the by-name column check (3, 4) can run:
 
 ```bash
-bin/assert_output.py --tumour P11_S12944Nr11 --normal P11_S12944Nr12 \
-  results/variant_calling/S12944Nr11_vs_S12944Nr12/S12944Nr11_vs_S12944Nr12.mutect2.filtered.vcf.gz
+V=results/variant_calling/mutect2/*/*.mutect2.filtered.vcf.gz
+bcftools query -l $V                       # exactly two columns: <patient>_<tumour>, <patient>_<normal>
+bcftools view -h $V | grep -E '##(tumor|normal)_sample='
+bcftools query -f '%FILTER
+' $V | sort | uniq -c | sort -rn | head   # populated, and some PASS
 ```
 
 ## Reading an empty or short result list
