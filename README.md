@@ -46,29 +46,33 @@ calling and variant comparison. See **[docs/roadmap.md](docs/roadmap.md)**.
 ## How to run
 
 ```bash
-bin/vc.py bed --out references/target_pad30.bed --fai references/Homo_sapiens_assembly38.fasta.fai
-cp assets/samplesheet_template.csv assets/samplesheet_pilot.csv   # then edit it
-bin/vc.py sheet assets/samplesheet_pilot.csv
-bin/vc.py run
+# 1. the target BED (once per reference)
+FAI=references/Homo_sapiens_assembly38.fasta.fai
+T=https://www.twistbioscience.com/content/dam/twistbioscience/resources
+cat <(curl -sL $T/2019-09/Twist_Exome_RefSeq_targets_hg38.bed) \
+    <(curl -sL $T/2020-04/Twist_MitoPanel_chrM_all_hg38_target.bed) \
+  | bedtools sort -faidx $FAI | bedtools merge -i - \
+  | bedtools slop -i - -g $FAI -b 30 | bedtools merge -i - > references/target_pad30.bed
+
+# 2. the run
+nextflow run ../sarek -profile docker -c nextflow.config -params-file params/pilot.yaml -w work -resume
 ```
 
-Full runbook, including the one-time reference download and the toolchain pins:
-[docs/steps.md](docs/steps.md).
+Full runbook — toolchain pins, the reference download, the samplesheet, and the optional
+sanity checks: [docs/steps.md](docs/steps.md).
 
 ## Layout
 
 ```
-bin/vc.py                       the entire CLI: bed | sheet | run
-bin/assert_output.py            the output contract, asserted on the produced VCF
-params/pilot.yaml               every sarek parameter, with the reason for each
-assets/samplesheet_template.csv edit this; sarek's own 7 columns
-nextflow.config                 resource overrides for the run box (resources only)
-tests/                          python3 -m unittest discover -s tests
-docs/                           introduction, steps, output contract, roadmap
+params/pilot.yaml                every sarek parameter, with the reason for each
+nextflow.config                  resource overrides for the run box
+assets/samplesheet_template.csv  copy, edit, point params/pilot.yaml at it
+references/                      the target BED and the reference .fai (git-ignored bundle)
+docs/                            introduction, steps, the output contract, roadmap
 ```
 
-Requires `bedtools`, `pybedtools`, `pyyaml`, and — to run — `nextflow` 25.10.x, Java 17+ and
-Docker. The BED arithmetic is bedtools'; the pipeline is stock nf-core/sarek 3.9.0, cloned as
-a sibling at `../sarek` and never modified. What is left in this repo is the small set of
-checks measured to have no published equivalent: the intervals contract, the tumour/normal
-cardinality rules, the germline-resource and container-disk pre-flights, and the VCF contract.
+**There is no code in this repository.** The interval arithmetic is bedtools', the pipeline is
+stock [nf-core/sarek](https://github.com/nf-core/sarek) 3.9.0 cloned as a sibling at `../sarek`
+and never modified, and everything this project decides lives in `params/pilot.yaml`.
+
+Requires `bedtools`, `curl`, and — to run — Nextflow **25.10.x**, Java 17+ and Docker.
