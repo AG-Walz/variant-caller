@@ -102,5 +102,70 @@ class Samplesheet(unittest.TestCase):
                 self.assertTrue(any(needle in e for e in errs), f"{name}: got {errs}")
 
 
+VCF_HEAD = """##fileformat=VCFv4.2
+##tumor_sample={t}
+##normal_sample={n}
+##contig=<ID=chr1,length=1000>
+##FORMAT=<ID=AF,Number=A,Type=Float,Description="af">
+##FILTER=<ID=weak,Description="w">
+#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t{t}\t{n}
+"""
+VCF_ROW = "chr1\t{pos}\t.\tA\tT\t.\t{filt}\t.\tAF\t0.5\t0.0\n"
+
+
+class OutputContract(unittest.TestCase):
+    """A finished run does not tell you it is correct: tumour-only routing, a zero-PASS call
+    set and swapped columns all produce plausible files."""
+
+    @classmethod
+    def setUpClass(cls):
+        try:
+            import pysam  # noqa: F401
+        except ImportError:
+            raise unittest.SkipTest("pysam not installed")
+
+    def _vcf(self, tmp, name="P11_A_vs_P11_B.mutect2.filtered.vcf.gz", t="P11_A", n="P11_B",
+             rows=(("100", "PASS"), ("200", "weak")), head=None):
+        import pysam
+        plain = Path(tmp) / "x.vcf"
+        body = (head if head is not None else VCF_HEAD).format(t=t, n=n)
+        body += "".join(VCF_ROW.format(pos=p, filt=f) for p, f in rows)
+        plain.write_text(body)
+        out = str(Path(tmp) / name)
+        pysam.tabix_compress(str(plain), out, force=True)
+        return out
+
+    def test_good(self):
+        with tempfile.TemporaryDirectory() as t:
+            errs, n, npass = vc.check_vcf(self._vcf(t), "P11_A", "P11_B")
+            self.assertEqual((errs, n, npass), ([], 2, 1))
+
+    def test_bare_ids_get_the_prefix_hint(self):
+        with tempfile.TemporaryDirectory() as t:
+            errs, _, _ = vc.check_vcf(self._vcf(t), "A", "B")
+            self.assertTrue(any("HINT" in e and "P11" in e for e in errs), errs)
+
+    def test_rejects(self):
+        cases = {
+            "no _vs_ in the filename": dict(name="tumouronly.mutect2.filtered.vcf.gz"),
+            "zero PASS records": dict(rows=(("100", "weak"), ("200", "weak"))),
+            "FILTER empty on every record": dict(rows=(("100", "."), ("200", "."))),
+            "no records at all": dict(rows=()),
+        }
+        for name, kw in cases.items():
+            with self.subTest(name), tempfile.TemporaryDirectory() as t:
+                errs, _, _ = vc.check_vcf(self._vcf(t, **kw), "P11_A", "P11_B")
+                self.assertTrue(errs, f"{name} should be rejected")
+
+    def test_rejects_missing_header_tags_and_af(self):
+        head = VCF_HEAD.replace("##normal_sample={n}\n", "").replace(
+            '##FORMAT=<ID=AF,Number=A,Type=Float,Description="af">\n',
+            '##FORMAT=<ID=DP,Number=1,Type=Integer,Description="d">\n')
+        with tempfile.TemporaryDirectory() as t:
+            errs, _, _ = vc.check_vcf(self._vcf(t, head=head), "P11_A", "P11_B")
+            self.assertTrue(any("normal_sample" in e for e in errs), errs)
+            self.assertTrue(any("AF" in e for e in errs), errs)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -5,13 +5,14 @@ Three subcommands, one file, one language:
 
     vc.py bed    --out references/target_pad30.bed --fai references/*.fasta.fai
     vc.py sheet  assets/samplesheet_pilot.csv
+    vc.py vcf    results/…/T_vs_N.mutect2.filtered.vcf.gz --tumour P11_T --normal P11_N
     vc.py run    [--params params/pilot.yaml]
 
 Everything sarek or bedtools can do is delegated to them. What is left is the four
 things measured to have no published equivalent, each marked WHY below.
 
-Requires: bedtools + pybedtools, and (for `run`) nextflow + docker.
-    mamba install -c conda-forge -c bioconda bedtools pybedtools
+Requires: bedtools, pybedtools, pysam, pyyaml — and (for `run`) nextflow + docker.
+    mamba install -c conda-forge -c bioconda bedtools pybedtools pysam pyyaml
 """
 import argparse
 import base64
@@ -169,6 +170,65 @@ def cmd_sheet(a):
     print(f"{a.samplesheet}: OK", file=sys.stderr)
 
 
+# ----------------------------------------------------------------------------- vcf
+def check_vcf(path, tumour, normal):
+    """The output contract. Returns a list of error strings.
+
+    A finished sarek run does not tell you it is correct: a tumour-only routing, a
+    zero-PASS call set, or swapped sample columns all produce a plausible file. Parsing is
+    pysam's (htslib, the same C library bcftools uses); only the contract is ours.
+    """
+    import pysam
+    pysam.set_verbosity(0)                      # a missing .tbi is not an error here
+    errs, base = [], Path(path).name
+    if "_vs_" not in base:
+        errs.append(f"{base} has no '_vs_': a tumour-only run produces no paired VCF")
+    if not base.endswith(".mutect2.filtered.vcf.gz"):
+        errs.append(f"{base} is not a FilterMutectCalls output")
+    v = pysam.VariantFile(str(path))
+    h = v.header
+    got, want = list(h.samples), [tumour, normal]
+    if got != want:
+        hint = ""
+        pfx = {s[: -len(d) - 1] for d in want for s in got if s.endswith("_" + d)}
+        if len(pfx) == 1:
+            hint = (f"\n  HINT: each column is a declared id prefixed with {pfx.pop()!r} — sarek "
+                    "writes SM:<patient>_<sample>, so only the FILENAME uses the bare ids")
+        errs.append(f"sample columns {got} != declared {want}{hint}")
+    for key, val in (("tumor_sample", tumour), ("normal_sample", normal)):
+        seen = [r.value for r in h.records if r.key == key]
+        if seen != [val]:
+            errs.append(f"##{key}= is {seen or 'missing'}, expected [{val!r}]")
+    if "AF" not in h.formats:
+        errs.append("FORMAT has no AF field")
+    if "chr1" not in h.contigs:
+        errs.append("no chr1 contig in the header — is this GRCh38?")
+    n = npass = nfiltered = 0
+    for rec in v:
+        n += 1
+        f = list(rec.filter)
+        nfiltered += bool(f)
+        npass += f == ["PASS"]
+    if n == 0:
+        errs.append("no data records")
+    elif not nfiltered:
+        errs.append(f"FILTER is empty on all {n} records — FilterMutectCalls did not run, "
+                    "which is what a missing --germline_resource silently produces")
+    elif npass == 0:
+        errs.append(f"{n} records but NONE is PASS — 'bcftools view -f PASS' would yield nothing")
+    return errs, n, npass
+
+
+def cmd_vcf(a):
+    errs, n, npass = check_vcf(a.vcf, a.tumour, a.normal)
+    for e in errs:
+        print(e, file=sys.stderr)
+    if errs:
+        die(f"{a.vcf} does not satisfy the v1 output contract")
+    print(f"PASS: output contract satisfied  records={n} PASS={npass} "
+          f"tumour={a.tumour} normal={a.normal}", file=sys.stderr)
+
+
 # --------------------------------------------------------------------------- run
 def _params(path):
     import yaml  # only `run` needs it, so a box that just builds a BED does not
@@ -226,9 +286,8 @@ def cmd_run(a):
     # sarek names the FILE from the bare sample ids but the VCF's genotype columns from the
     # read group SM:<patient>_<sample>. Both are needed; passing the bare ids fails a good run.
     patient = rows[0]["patient"]
-    subprocess.run([sys.executable, str(REPO / "bin" / "assert_output.py"),
-                    "--tumour", f"{patient}_{a.tumour}", "--normal", f"{patient}_{a.normal}",
-                    str(hits[0])], check=True)
+    cmd_vcf(argparse.Namespace(vcf=hits[0], tumour=f"{patient}_{a.tumour}",
+                               normal=f"{patient}_{a.normal}"))
 
 
 # --------------------------------------------------------------------------- cli
@@ -248,6 +307,12 @@ def main(argv=None):
     s = sub.add_parser("sheet", help="validate a samplesheet")
     s.add_argument("samplesheet")
     s.set_defaults(func=cmd_sheet)
+
+    v = sub.add_parser("vcf", help="assert the output contract on a VCF")
+    v.add_argument("vcf")
+    v.add_argument("--tumour", required=True, help="the SM name, i.e. <patient>_<sample>")
+    v.add_argument("--normal", required=True)
+    v.set_defaults(func=cmd_vcf)
 
     r = sub.add_parser("run", help="preflight, launch sarek, assert the output")
     r.add_argument("--params", default="params/pilot.yaml")
