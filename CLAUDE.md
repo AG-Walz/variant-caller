@@ -10,30 +10,31 @@ clone of stock **nf-core/sarek 3.9.0** at `../sarek`. It does not `include` sare
 fork it, or reimplement calling. There is no `main.nf`, no `modules/`, no `workflows/`.
 
 ```
-bin/vc.py                       the entire CLI: bed | sheet | run
-bin/assert_output.py            the output contract, asserted on the produced VCF
-params/pilot.yaml               every sarek parameter, with the reason for each
-assets/samplesheet_template.csv edit this; sarek's own 7 columns
-nextflow.config                 resource overrides for the run box (resources only)
-tests/                          python3 -m unittest discover -s tests
+params/pilot.yaml                every sarek parameter, with the reason for each
+nextflow.config                  resource overrides for the run box (resources only)
+assets/samplesheet_template.csv  copy, edit, point params/pilot.yaml at it
+docs/steps.md                    the two commands, and the optional checks
 ```
 
-Dependencies: `bedtools`, `pybedtools`, `pyyaml`; plus `nextflow` 25.10.x, Java 17+ and
-Docker to run. **The old "dependency-light, pure awk/coreutils" mandate is withdrawn** —
-2026-07-30, on the user's instruction: delegate to published tools, keep the code small and
-readable, and only write bespoke logic where nothing published does the job.
+**THERE IS NO CODE IN THIS REPOSITORY, and that is deliberate** (2026-07-30, on the user's
+explicit instruction: "I want minimal code, simply join the bed files in a one liner and
+assuming the samplesheet stands run the sarek with the chosen settings"). Do not reintroduce
+scripts. The target BED is a bedtools one-liner in `docs/steps.md`; the run is
+`nextflow run ../sarek -params-file params/pilot.yaml`. Dependencies: bedtools, curl,
+Nextflow 25.10.x, Java 17+, Docker.
 
-## The rule that decides what belongs here
+## What is NOT checked any more, and how each fails
 
-Delete anything sarek, bedtools or nf-schema already does. Every check that remains was
-**measured** to have no published equivalent:
+All five were previously enforced and were deleted with the code. Every one fails SILENTLY or
+expensively, so if a run produces something surprising, start here. `docs/steps.md` documents
+each as an optional one-line check:
 
-- **The intervals contract** (`vc.is_canonical`). A canonical BED is a fixed point of
+- **The intervals contract.** A canonical BED is a fixed point of
   `sort -faidx | merge | slop -b 0`. Measured on the BED that killed a run:
   `gatk BedToIntervalList` exits 0 and silently reorders it, `nextflow -preview` reports
   success in 30.4 s, `bedtools sort | diff` catches 1 of 5 hazards. Known gap: a zero-length
   interval passes (GATK rejects it loudly, so it is not silent).
-- **The tumour/normal cardinality rules** (`vc.check_sheet`). mutect2 is absent from sarek's
+- **The tumour/normal cardinality rules.** mutect2 is absent from sarek's
   `tools_requiring_normal_samples`, so a patient with no `status=0` row runs **tumour-only and
   completes**. `status: 1.00` parses as a BigDecimal; an absent status column defaults every
   row to 0. csvtk/mlr can compute the tally but cannot fail on it; PEP/eido validated a
@@ -42,11 +43,11 @@ Delete anything sarek, bedtools or nf-schema already does. Every check that rema
   `"exists": true` in sarek's schema, and without it sarek publishes the **unfiltered** VCF.
 - **Free space on `/var/lib/containerd`.** docker 29.x writes image layers there regardless of
   `data-root`; two pilot runs died on it after 2h47m and 44m.
-- **The VCF output contract** (`assert_output.py`). Four of its checks have no `bcftools`
-  equivalent.
+- **The VCF output contract.** `bcftools query -l` and a `%FILTER` tally cover most of it;
+  a swapped tumour/normal is not detectable by any of it.
 
-nf-schema already validates `--input`, `--intervals`, `--fasta`, `--fasta_fai`, `--dict` and
-every per-row FASTQ path, aborting before any task — do not re-add those checks.
+nf-schema does validate `--input`, `--intervals`, `--fasta`, `--fasta_fai`, `--dict` and every
+per-row FASTQ path, aborting before any task — so those failures at least remain loud.
 
 ## Key domain facts (do not re-derive)
 
