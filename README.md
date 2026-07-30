@@ -12,7 +12,7 @@ assertion. Think "shell script around `nextflow run`", not "DSL2 pipeline".
 
 ```
 FASTQ (tumour + its normal)                 one nextflow run of the local sarek clone
-+ declarations.tsv (sample→patient→label)   ─────────────────────────────────────────►
++ samplesheet.csv (patient, status, FASTQ)      ─────────────────────────────────────────►
                                             variant_calling/<T>_vs_<N>/
                                               <T>_vs_<N>.mutect2.filtered.vcf.gz
 ```
@@ -43,117 +43,32 @@ contract; some belong to other pipelines.
 take Level 1 (FASTQ + CSV) and deliver mapping, SNV/indel **and ROH** calling, annotation, CNV
 calling and variant comparison. See **[docs/roadmap.md](docs/roadmap.md)**.
 
-## Quickstart (pilot: UrCa Nr11 tumour vs Nr12 normal)
-
-Run on the target box (Docker only, Nextflow in a `screen` session). End to end:
+## How to run
 
 ```bash
-# 0. Fresh box only: clone ../sarek at 3.9.0 and install Nextflow, then verify.
-#    run_pilot.sh resolves sarek as ../sarek, so the two repos must be SIBLINGS.
-scripts/setup_env.sh
-tests/check_environment.sh
-
-# 1. Download the reference bundle (genome + gnomAD germline resource). One-off, large.
-scripts/fetch_references.sh
-
-# 2. Build the 3-column target BED from the CAPTURE KIT VENDOR's files, padded 30 bp. One-off.
-#    Kit: Twist Human Core Exome + RefSeq + Mitochondrial Panel (from the project report).
-#    --fai is REQUIRED: it sets the contig order (must be the reference's, not lexicographic —
-#    a chr19-before-chr2 BED breaks GATK's interval gather) and clamps chrM's padding to the
-#    contig length. --verify cross-checks against what was physically captured.
-bin/build_kit_bed.sh \
-  --out references/target_pad30.bed \
-  --fai references/Homo_sapiens_assembly38.fasta.fai \
-  --verify /mnt/volume/data/DNA/00_metrics/S000021_S12944Nr11.tumor.target.counts.gc-corrected.gz
-
-# 3. Build the sarek samplesheet from a declarations TSV + the FASTQ directory.
-#    REQUIRED, and on the box that will run it: the sheet carries absolute paths and
-#    sarek's schema sets "exists": true on them. The committed CSV is only an example.
-bin/build_samplesheet.py --declarations assets/pilot_declarations.tsv \
-    --fastq-dir <the FASTQ directory on THIS box> \
-    --out assets/samplesheet_pilot.csv
-
-# 4. Run the pinned minimal sarek command for the pilot pair.
-#    (run_pilot.sh runs the output assertion itself once the VCF is produced)
-INPUT=assets/samplesheet_pilot.csv scripts/run_pilot.sh
+bin/vc.py bed --out references/target_pad30.bed --fai references/Homo_sapiens_assembly38.fasta.fai
+cp assets/samplesheet_template.csv assets/samplesheet_pilot.csv   # then edit it
+bin/vc.py sheet assets/samplesheet_pilot.csv
+bin/vc.py run
 ```
 
-`run_pilot.sh` ends by calling the assertion for you. To re-check a VCF by hand:
+Full runbook, including the one-time reference download and the toolchain pins:
+[docs/steps.md](docs/steps.md).
 
-```bash
-bin/assert_output.py --tumour P11_S12944Nr11 --normal P11_S12944Nr12 \
-  results/variant_calling/S12944Nr11_vs_S12944Nr12/S12944Nr11_vs_S12944Nr12.mutect2.filtered.vcf.gz
-```
-
-Expected deliverable:
-`results/variant_calling/S12944Nr11_vs_S12944Nr12/S12944Nr11_vs_S12944Nr12.mutect2.filtered.vcf.gz`
-
-Full operator runbook: **[docs/steps.md](docs/steps.md)**.
-
-## Repository layout
+## Layout
 
 ```
-README.md            this file
-CLAUDE.md            guidance for Claude Code in this repo
-scripts/
-  setup_env.sh          bootstrap a fresh box: clone ../sarek at 3.9.0 + install Nextflow
-  fetch_references.sh   download genome + gnomAD germline resource
-  run_pilot.sh          the pinned minimal `nextflow run <sarek>` for the pilot pair
-bin/
-  lib_bed.sh            shared BED ordering + validation (reference contig order, sourced below)
-  build_kit_bed.sh      Twist kit BEDs → 3-column, 30 bp-padded target BED (canonical)
-  build_target_bed.sh   same BED reconstructed from DRAGEN counts (verification only)
-  build_samplesheet.py  declarations TSV + FASTQ dir → sarek samplesheet (with validation)
-  assert_output.py      enforce the output contract on the produced VCF
-assets/
-  pilot_declarations.tsv        example declarations (sample→patient→label)
-  samplesheet_pilot_example.csv example emitted sarek samplesheet
-nextflow.config         minimal resource-override config passed to sarek via `-c`
-tests/                  soundness checks for the helper tools
-  check_environment.sh  read-only preflight: can THIS box run the pipeline?
-  test_lib_bed.sh       pins the BED ordering contract (synthetic; runs anywhere)
-docs/                   introduction, inputs, usage, output, steps
+bin/vc.py                       the entire CLI: bed | sheet | run
+bin/assert_output.py            the output contract, asserted on the produced VCF
+params/pilot.yaml               every sarek parameter, with the reason for each
+assets/samplesheet_template.csv edit this; sarek's own 7 columns
+nextflow.config                 resource overrides for the run box (resources only)
+tests/                          python3 -m unittest discover -s tests
+docs/                           introduction, steps, output contract, roadmap
 ```
 
-The wrapped sarek clone lives beside this repo at `../sarek` (path is a variable in the run
-script). This repo never forks or edits sarek.
-
-## Two traps in the target BED
-
-Both are silent — the BED looks fine and the run fails much later, or not at all.
-
-1. **Exactly 3 columns.** sarek's `create_intervals_bed` reads column 5 as a per-region
-   runtime-seconds estimate, so a 4th or 5th column corrupts the interval scatter without any
-   error message.
-2. **Reference contig order, never lexicographic.** `sort -k1,1` orders contig *names as
-   strings*, putting `chr19` before `chr2` and `chrM` before `chrX`. sarek reads `--intervals`
-   in the order given, and GATK's `GatherPileupSummaries` assumes the shards come back in
-   sequence-dictionary order — so a lexicographic BED produces a gathered pileup table whose
-   records run backwards, and `CalculateContamination` fails with
-   `Invalid interval. Contig:chr22 start:42062823 end:40827186`. This killed the first pilot
-   run on 2026-07-27. **`sort -V` does not fix it** (it still misplaces `chrM`); only ordering
-   by the reference `.fai` does.
-
-Both builders enforce both rules via `bin/lib_bed.sh` and refuse to write a BED that violates
-them, so this cannot recur silently. `tests/test_lib_bed.sh` pins the contract.
-
-## Documentation
-
-| | |
-|---|---|
-| [Introduction](docs/introduction.md) | What somatic calling is and why the steps exist |
-| [Inputs](docs/inputs.md) | Declarations TSV, sample labels, the emitted samplesheet, references |
-| [Usage](docs/usage.md) | The pinned sarek command, flags, and target-box notes |
-| [Output](docs/output.md) | The single deliverable and the contract that guards it |
-| [Steps](docs/steps.md) | Numbered end-to-end runbook for the pilot |
-| [Roadmap](docs/roadmap.md) | v1 / v2 / v3 scope — incl. the CeGaT Level 2–5 replacement goal |
-
-## Credits
-
-Developed at [AG Walz](https://github.com/AG-Walz), Tübingen. Built by wrapping a local
-clone of [nf-core/sarek](https://github.com/nf-core/sarek) and following the lean
-orchestration shape of the sibling `fastq-to-fasta` repo.
-
-## Licence
-
-To be confirmed before first release.
+Requires `bedtools`, `pybedtools`, `pyyaml`, and — to run — `nextflow` 25.10.x, Java 17+ and
+Docker. The BED arithmetic is bedtools'; the pipeline is stock nf-core/sarek 3.9.0, cloned as
+a sibling at `../sarek` and never modified. What is left in this repo is the small set of
+checks measured to have no published equivalent: the intervals contract, the tumour/normal
+cardinality rules, the germline-resource and container-disk pre-flights, and the VCF contract.

@@ -1,232 +1,119 @@
-# Steps — operator runbook (pilot on peptimine_highmem1)
+# Steps — the operator runbook
 
-End-to-end recipe to produce the pilot deliverable: tumour `S12944Nr11` vs its normal
-`S12944Nr12`, one paired somatic VCF. Run on the target box (28 cores, ~503 GB RAM, Docker
-only). Each step lists the exact command and what to expect.
-
-Assumes you are in the repo root: `/mnt/volume/variant_caller/variant-caller`.
-
-## 0a. On a fresh box: clone both repos as siblings, then bootstrap
-
-`run_pilot.sh` resolves sarek as **`../sarek`** — this repo *wraps* sarek by path, it does not
-vendor or fork it. So the two must sit side by side:
+Four commands. Everything else is sarek's or bedtools' job.
 
 ```bash
-mkdir -p ~/variant_caller && cd ~/variant_caller
-git clone https://github.com/AG-Walz/variant-caller.git
-cd variant-caller && git checkout feat/v1-pilot   # main is still the scaffold
-
-scripts/setup_env.sh          # clones ../sarek at 3.9.0 + installs Nextflow
-tests/check_environment.sh    # verifies everything, including what setup_env does not install
+bin/vc.py bed --out references/target_pad30.bed --fai references/Homo_sapiens_assembly38.fasta.fai
+cp assets/samplesheet_template.csv assets/samplesheet_pilot.csv   # then edit it
+bin/vc.py sheet assets/samplesheet_pilot.csv
+bin/vc.py run
 ```
 
-`setup_env.sh` is idempotent and installs no system packages — it detects Java and Docker and
-tells you the command to install them, rather than running it for you on a shared box.
-`check_environment.sh` is read-only and exits non-zero if any hard requirement is unmet.
-
-**Versions are not negotiable:** sarek 3.9.0 pins `nextflowVersion = '!>=25.10.2'`, and the
-leading `!` makes a lower version a **hard launch failure**, not a warning. Nextflow 25.10 in
-turn requires **Java 17+**.
-
-## 0b. Start a screen session
-
-A full run is long; a dropped SSH connection must not kill it.
+## 0. Once per box
 
 ```bash
-screen -S variant-caller
+git clone --branch 3.9.0 --depth 1 https://github.com/nf-core/sarek.git ../sarek
+mamba create -y -p /mnt/volume/bin/envs/vc -c conda-forge -c bioconda \
+    nextflow=25.10.4 openjdk=17 bedtools pybedtools pyyaml
+export PATH=/mnt/volume/bin/envs/vc/bin:$PATH
 ```
 
-(Reattach later with `screen -r variant-caller`.)
+**Pin the Nextflow version.** sarek 3.9.0 requires `>=25.10.2` (the `!` in its manifest makes
+a lower version a hard launch failure), but `curl https://get.nextflow.io | bash` currently
+installs **26.04.6**, under which the pinned invocation aborts on a valid paired samplesheet
+with *"The sample-sheet only contains normal-samples … expect at least one tumor-sample"*.
+Nextflow 25.10 needs **Java 17+**, not 11.
 
-## 1. Install Nextflow (once)
+Run long jobs under `tmux`/`screen` and keep the log: `tmux new -d -s vc "bin/vc.py run 2>&1 | tee -a run.log"`.
 
-`scripts/setup_env.sh` in step 0a does this for you. To do it by hand:
+## 1. References
+
+Five files, plus the aligner index. Download them into `references/` — checksum-verified,
+and the published BWA-MEM1 index saves the 1 h 15 min sarek otherwise spends building one
+byte-identical to it:
 
 ```bash
-which nextflow   # if this prints a path, check it is >= 25.10.2
-curl -s https://get.nextflow.io | bash
-sudo mv nextflow /usr/local/bin/    # or put it anywhere on PATH
-nextflow -version                   # must be >= 25.10.2
+B=https://storage.googleapis.com/gcp-public-data--broad-references/hg38/v0
+G=https://storage.googleapis.com/gatk-best-practices/somatic-hg38
+mkdir -p references/bwa
+aria2c -x8 -s8 -c -d references $B/Homo_sapiens_assembly38.fasta{,.fai} $B/Homo_sapiens_assembly38.dict
+aria2c -x8 -s8 -c -d references $G/af-only-gnomad.hg38.vcf.gz{,.tbi}
+for e in amb ann bwt pac sa; do
+    aria2c -x8 -s8 -c -d references/bwa -o Homo_sapiens_assembly38.$e $B/Homo_sapiens_assembly38.fasta.64.$e
+done
 ```
 
-Nextflow needs **Java 17+** (not 11 — 25.10 dropped it), e.g.
-`sudo apt-get install -y openjdk-17-jre-headless`. Docker must be usable by your user without
-sudo (`docker ps` should work). `scripts/run_pilot.sh` also checks for `nextflow` and `docker`
-and stops with guidance if either is missing.
+Add `--check-integrity=true --checksum=md5=<published>` per file if you want the transfer
+verified — `curl -C -` and `wget -c` both silently accept a same-size corrupted file, and a
+truncated gnomAD VCF would reach Mutect2, where a missing germline resource makes sarek
+publish the **unfiltered** VCF with no error.
 
-## 2. Fetch references (once, large download)
+To use the downloaded index, uncomment `bwa: references/bwa` in `params/pilot.yaml`. It
+changes the alignment tasks' input identity, so do it on a fresh cohort, not mid-run.
 
-Downloads GRCh38 (`Homo_sapiens_assembly38.fasta` + `.fai` + `.dict`) and the gnomAD germline
-resource (`af-only-gnomad.hg38.vcf.gz` + `.tbi`) into `references/` (git-ignored).
+## 2. The target BED
 
 ```bash
-scripts/fetch_references.sh
+bin/vc.py bed --out references/target_pad30.bed --fai references/Homo_sapiens_assembly38.fasta.fai
 ```
 
-Expect several tens of GB. The gnomAD VCF doubles as the contamination source, so no separate
-small-exac file is needed.
+Downloads the two Twist vendor files (verifying the vendor's published `Content-MD5`), unions,
+sorts into **reference contig order**, merges, pads ±30 bp clamped to contig lengths, merges
+again, and refuses to write unless the result is a canonical intervals BED.
 
-## 3. Build the target BED from the kit vendor's files (canonical)
+Expected: **214,494 regions / 49,633,134 bp**, md5 `69ed88c5131c8613efe5e20e66954e74`.
 
-**Resolved 2026-07-24 — no need to wait for CeGaT.** The kit is named in the delivery documents
-(CTP somatic project report, p.3): **Twist Human Core Exome + RefSeq + Mitochondrial Panel**,
-Twist Bioscience (50 ng input; NovaSeq 6000, 2×101 bp). That name maps to exactly **two** hg38
-vendor files, and their union was **proven identical** to what this run actually captured.
+Why 30 bp: it is CeGaT's own DRAGEN setting (`--vc-target-bed-padding 30`), and their coverage
+metrics (49,599,660 bp) confirm their calls are reported over the padded territory.
+
+## 3. The samplesheet
+
+Copy the template and edit it — sarek's own 7 columns, absolute paths, **on the box that will
+run**:
+
+```csv
+patient,sex,status,sample,lane,fastq_1,fastq_2
+P11,NA,1,S12944Nr11,L001,/abs/S000021_S12944Nr11.1.fastq.gz,/abs/S000021_S12944Nr11.2.fastq.gz
+P11,NA,0,S12944Nr12,L001,/abs/S000021_S12944Nr12.1.fastq.gz,/abs/S000021_S12944Nr12.2.fastq.gz
+```
+
+`status`: **1 = tumour, 0 = normal**. Exactly one normal per patient, at least one tumour.
+`patient` must be the individual (`P11`), **never** the order id `S000021` — that collapses
+the cohort into one person.
+
+To avoid typing long paths, generate the rows and then fill in patient and status:
 
 ```bash
-bin/build_kit_bed.sh \
-  --out references/target_pad30.bed \
-  --fai references/Homo_sapiens_assembly38.fasta.fai \
-  --verify /mnt/volume/data/DNA/00_metrics/S000021_S12944Nr11.tumor.target.counts.gc-corrected.gz
+for f in /abs/path/*.1.fastq.gz; do
+    s=$(basename "$f" .1.fastq.gz); s=${s#S000021_}
+    printf 'PATIENT,NA,STATUS,%s,L001,%s,%s\n' "$s" "$f" "${f%.1.fastq.gz}.2.fastq.gz"
+done
 ```
 
-It downloads both files, unions and merges them, pads 30 bp, and prints a verification table.
+Then `bin/vc.py sheet <file>`. **Nothing can detect a swapped `status`** — not this check, not
+sarek, not the output assertion — so read the pairing table `run` prints before it launches.
 
-| Vendor file | Regions | Use |
-|---|---|---|
-| `Twist_Exome_RefSeq_targets_hg38.bed` | 215,623 | ✅ **Core Exome + RefSeq, both in one file** |
-| `Twist_MitoPanel_chrM_all_hg38_target.bed` | 1 | ✅ chrM 1–16569 |
-| `Twist_Exome_Core_Covered_Targets_hg38.bed` | 192,262 | ❌ **not needed** — subsumed by the RefSeq file |
-
-**Why we trust it:** kit union = **215,624** regions, of which **215,623 match the DRAGEN target
-counts for this run exactly**. The single difference is chrM (vendor tiles `1–16569`, the counts
-report `113–16517`). So CeGaT's `S000021` design is the **stock Twist files with no
-customisation** — the earlier worry about a CeGaT-specific composite was unfounded.
-
-**Three traps this script handles for you:**
-
-- **`--fai` is required.** It does two jobs. (1) It sets the **contig order** of the output —
-  see below. (2) It clamps padded ends: `chrM 1–16569` padded by 30 becomes `0–16599`, past the
-  end of chrM (length 16,569), and **GATK rejects out-of-bounds intervals**.
-- **Contig order must be the reference's, not lexicographic.** `sort -k1,1` sorts contig *names
-  as strings*, which puts `chr19` before `chr2` and `chrM` before `chrX`. sarek reads
-  `--intervals` rows **in the order given**, and GATK's `GatherPileupSummaries` assumes the
-  shards it gathers are in sequence-dictionary order. A lexicographic BED therefore produces a
-  gathered pileup table whose records run backwards, and `CalculateContamination` dies with
-  `Invalid interval. Contig:chr22 start:42062823 end:40827186`. **This failed the first pilot
-  run on 2026-07-27** at exactly the two order resets in the file (`chr19→chr2`, `chr22→chr3`;
-  a third, `chrM→chrX`, was latent). `sort -V` is **not** a fix — it still misplaces `chrM`.
-  The script now orders by the `.fai` and asserts the result before writing
-  (`bed_sort_by_fai` / `bed_assert_fai_sorted` in `bin/lib_bed.sh`).
-- **Padding 30 bp is not our invention** — it is CeGaT's own DRAGEN setting
-  (`--vc-target-bed-padding 30`, from the delivered VCF header).
-
-The script prints a `validated :` line confirming 3 columns, `.fai` contig order, in-bounds
-coordinates and no overlaps. If that line is missing, the BED was not written.
-
-Expected result: **214,494 regions / 49,633,134 bp**.
-
-**Do not use the BED shipped in the delivery.** `/mnt/volume/data/S000021_hg19_targets.bed` is
-**hg19** — its `TP53`-labelled rows sit at `chr17:7,572,926`, whereas GRCh38 TP53 is at
-`chr17:7,668,402+`, and only 1,427 of ~215,000 regions match the GRCh38 target set.
-
-## 3b. Reconstruct the target BED from DRAGEN counts (verification only)
-
-Turns a DRAGEN target-count file into a **3-column**, **30 bp-padded** interval BED. The
-target set is identical across all 18 UrCa samples, so any one `*.target.counts.gc-corrected.gz`
-works.
-
-**This is not the file the pipeline consumes.** `references/target_pad30.bed` comes from step 3
-(`build_kit_bed.sh`); this tool exists only to cross-check that against the counts, which are
-the sole evidence of what was *physically* captured. Write it somewhere else so you cannot
-clobber the canonical BED:
+## 4. Run
 
 ```bash
-bin/build_target_bed.sh \
-  /mnt/volume/data/DNA/00_metrics/<sample>.target.counts.gc-corrected.gz \
-  /tmp/target_pad30.from_counts.bed \
-  --fai references/Homo_sapiens_assembly38.fasta.fai
+bin/vc.py run                      # or: bin/vc.py run --params params/pilot.yaml
 ```
 
-`--fai` is required here too, for the same contig-order reason as in step 3 — so this tool
-also cannot produce a mis-ordered BED, even though its output is only ever compared, not run.
+Pre-flight (five checks sarek does not perform), then `nextflow run ../sarek -params-file
+params/pilot.yaml -resume`, then the output-contract assertion on the produced VCF. Every
+scientific parameter lives in `params/pilot.yaml`; only Nextflow's own options are in the code.
 
-The output BED must be exactly 3 columns (`chrom  start  end`) — an extra column 5 would be
-read by sarek as a per-region runtime estimate and silently break the interval scatter. The
-canonical pad-30 output is checksum-verified (region and bp counts), so a wrong or changed
-input file fails hard rather than silently.
-
-## 4. Build the pilot samplesheet — **on the box that will run it**
-
-Do not skip this. The samplesheet carries **absolute** FASTQ paths, and sarek's
-`assets/schema_input.json` sets `"exists": true` on `fastq_1`/`fastq_2`, so a path that is
-right on one machine is a hard launch failure on another. `assets/samplesheet_pilot_example.csv`
-is committed as an **example** and carries one box's paths; regenerate it wherever the run
-actually happens. (`run_pilot.sh` pre-flights this and refuses to launch if any FASTQ in the
-sheet is missing, naming the files and this command.)
-
-The declarations TSV is the portable artefact — it names samples, not paths. The builder merges
-it with auto-discovery of the FASTQ files (R1/R2 pairing, sample id, lane), validates, and
-writes the sarek samplesheet.
-
-```bash
-bin/build_samplesheet.py \
-  --declarations assets/pilot_declarations.tsv \
-  --fastq-dir <the FASTQ directory on THIS box> \
-  --out assets/samplesheet_pilot.csv
-```
-
-Then run step 5 with `INPUT=assets/samplesheet_pilot.csv`.
-
-`assets/pilot_declarations.tsv` declares (header row optional):
+Deliverable:
 
 ```
-sample	patient	label
-S12944Nr11	P11	tumour
-S12944Nr12	P11	tumour_adjacent
+results/variant_calling/mutect2/<T>_vs_<N>/<T>_vs_<N>.mutect2.filtered.vcf.gz
 ```
 
-The tool refuses to emit unless, for patient `P11`: every sample has a valid label, there is
-exactly one `status=0` row (Nr12), and at least one `status=1` row (Nr11). The emitted sheet
-has the header `patient,sex,status,sample,lane,fastq_1,fastq_2` (see [inputs.md](inputs.md)).
+Expect ~45 min for one pair on 28 cores once the aligner index exists (1 h 15 min more if it
+does not and you did not download it). The contract is in [output.md](output.md).
 
-## 5. Run the pinned minimal sarek command
+## Another patient
 
-```bash
-scripts/run_pilot.sh
-```
-
-The script first runs pre-flight checks (nextflow + docker present and usable; references, BED,
-samplesheet, and resource `nextflow.config` in place; samplesheet header exactly correct; every
-FASTQ named in the samplesheet exists on this box), then
-wraps the local `../sarek` clone with the pinned flags (`-profile docker`, `--step mapping`,
-`--tools mutect2`, `--wes`, the explicit reference files, `--germline_resource`,
-`--skip_tools ...`, `--trim_fastq --trim_nextseq`, `--save_reference`, `-resume`; full command
-in [usage.md](usage.md)). It maps
-the reads, marks duplicates, runs paired Mutect2 over the target, and runs FilterMutectCalls.
-Alignment dominates the runtime. `-resume` makes re-runs after a downstream hiccup cheap.
-Override any path via environment variables (`SAREK_DIR`, `OUTDIR`, `INPUT`, `TARGET_BED`,
-`TUMOUR_ID`, `NORMAL_ID`, ...).
-
-## 6. Assertion (run automatically by step 5)
-
-`run_pilot.sh` locates `S12944Nr11_vs_S12944Nr12.mutect2.filtered.vcf.gz` under
-`<outdir>/variant_calling` and runs the assertion itself. To re-check by hand:
-
-```bash
-bin/assert_output.py --tumour P11_S12944Nr11 --normal P11_S12944Nr12 \
-  results/variant_calling/S12944Nr11_vs_S12944Nr12/S12944Nr11_vs_S12944Nr12.mutect2.filtered.vcf.gz
-```
-
-Passes only if: filename contains `_vs_` and ends `.mutect2.filtered.vcf.gz`; FILTER is not
-all `.`; exactly two genotype columns named `P11_S12944Nr11` and `P11_S12944Nr12` (sarek writes
-`SM:<patient>_<sample>`, so the columns are patient-prefixed even though the FILE is named from
-the bare sample ids); `##tumor_sample=`
-/ `##normal_sample=` match those names; `FORMAT` has `AF`; `##contig` (GRCh38) present. Any
-failure exits non-zero and names the first failed check. Full contract in
-[output.md](output.md).
-
-## Expected pilot output
-
-```
-results/variant_calling/S12944Nr11_vs_S12944Nr12/S12944Nr11_vs_S12944Nr12.mutect2.filtered.vcf.gz
-```
-
-(plus its `.tbi` index). That single file is the v1 deliverable for this patient.
-
-## Extending beyond the pilot
-
-For another pair, write a new declarations TSV (correct `patient` ids — never the `S000021`
-order id), rebuild the samplesheet with `bin/build_samplesheet.py`, and run the same pinned
-command with that samplesheet. The target BED and references are reused. Remember: v1 is
-**paired only** — every patient needs exactly one declared normal, or the build fails.
+Add its two rows to the samplesheet with a new `patient` id and re-run. The target BED and
+references are reused. `run` asserts one pair at a time — pass `--tumour/--normal` for the
+pair you want checked.

@@ -1,7 +1,7 @@
 # Introduction
 
 Written for users who are new to somatic variant calling. If you already know the field,
-skip to [Inputs](inputs.md).
+skip to [Steps](steps.md).
 
 ## The problem
 

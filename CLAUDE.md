@@ -1,164 +1,90 @@
 # CLAUDE.md
 
-Guidance for Claude Code (claude.ai/code) when working in this repository.
+Guidance for Claude Code in this repository.
 
-## Project Overview
+## What this is
 
-`variant-caller` v1 is a **lean orchestration repo**, not an nf-core DSL2 pipeline. It turns
-tumour/normal **FASTQ + user-declared sample labels** into **one paired somatic VCF per
-patient**, and nothing else. It does this by **shelling out** to a single, pinned
-`nextflow run` of a **sibling clone of upstream nf-core/sarek** (tag 3.9.0) that lives beside
-this repo at `../sarek`. It does **not** `include` sarek modules, fork sarek, or reimplement
-calling. There is no `main.nf`, no `modules/`, no `workflows/`.
-
-Mirror the shape of the sibling `fastq-to-fasta` repo: README + CLAUDE at top, bash run
-scripts, a minimal resource `nextflow.config` passed via `-c`, example inputs under `assets/`.
-This repo adds `bin/` helper tools and `tests/` for soundness.
-
-## Repository Structure
-
-- `scripts/setup_env.sh` — bootstrap a fresh box: clone the sibling `../sarek` at tag 3.9.0 and
-  install Nextflow. Idempotent; installs **no** system packages (detects Java/Docker, prints the
-  install command instead of running it).
-- `tests/check_environment.sh` — read-only preflight; PASS/FAIL/WARN table, non-zero exit if any
-  hard requirement is unmet. Named `check_*` so the `tests/test_*` glob stays the unit tests.
-- `scripts/fetch_references.sh` — download GRCh38 + gnomAD germline resource into `references/`.
-- `scripts/run_pilot.sh` — the pinned minimal `nextflow run ../sarek ...` for the pilot pair.
-- `bin/lib_bed.sh` — shared BED ordering + validation, sourced by both builders.
-  `bed_sort_by_fai` orders rows by the **reference's** contig order; `bed_assert_fai_sorted` is
-  the hard gate (3 columns, known contigs, in-bounds, reference order, non-overlapping). Neither
-  builder can emit a BED that fails it.
-- `bin/build_kit_bed.sh --out <bed> --fai <ref.fai> [--verify <counts.gz>]` — **canonical** target
-  BED, built from the capture kit vendor's own files (Twist `..._RefSeq_targets_hg38.bed` +
-  `..._MitoPanel_chrM_all_hg38_target.bed`). `--fai` is **required**: it sets the contig order and
-  clamps padded ends to contig lengths.
-- `bin/build_target_bed.sh <counts.gc-corrected.gz> <out.bed> --fai <ref.fai> [--pad N]` — the same
-  BED reconstructed from DRAGEN counts. **Verification only**, not the input: it is the only
-  evidence of what was physically captured, so use it to check the kit BED. `--fai` is required
-  here too, so it cannot emit a mis-ordered BED either.
-- `bin/build_samplesheet.py --declarations <tsv> --fastq-dir <dir> --out <csv>` — validated
-  sarek samplesheet.
-- `bin/assert_output.py --tumour <id> --normal <id> <vcf>` — enforce the output contract on the
-  produced VCF (pure python3 + gzip).
-- `assets/` — example declarations TSV (`pilot_declarations.tsv`) and example samplesheet
-  (`samplesheet_pilot_example.csv`).
-- `nextflow.config` (repo root) — minimal per-process resource override passed to sarek via `-c`.
-- `tests/` — dependency-light soundness checks for the helper tools.
-- `docs/` — introduction, inputs, usage, output, steps.
-
-## How to run (pilot, on peptimine_highmem1)
-
-```bash
-scripts/setup_env.sh                 # fresh box: clone ../sarek 3.9.0 + install Nextflow
-tests/check_environment.sh           # verify (incl. Java 17+, Docker, RAM, sarek sibling)
-scripts/fetch_references.sh          # once → references/
-bin/build_kit_bed.sh --out references/target_pad30.bed \
-    --fai references/Homo_sapiens_assembly38.fasta.fai      # once (CANONICAL builder)
-bin/build_samplesheet.py --declarations assets/pilot_declarations.tsv \
-    --fastq-dir <FASTQ dir ON THIS BOX> \
-    --out assets/samplesheet_pilot.csv           # REQUIRED: paths are absolute
-INPUT=assets/samplesheet_pilot.csv scripts/run_pilot.sh   # pinned command AND the assertion
-```
-
-`assets/samplesheet_pilot_example.csv` is an **example** carrying one box's absolute paths.
-sarek's `schema_input.json` sets `"exists": true` on `fastq_1`/`fastq_2`, so it must be
-regenerated wherever the run happens; `run_pilot.sh` pre-flights this and refuses to launch
-otherwise.
-
-`run_pilot.sh` calls `bin/assert_output.py` itself once the VCF is produced, passing the
-**patient-prefixed** sample names (`P11_S12944Nr11` / `P11_S12944Nr12`). sarek writes the read
-group as `SM:<patient>_<sample>`, so the VCF's genotype columns are prefixed while the FILE is
-named from the bare `sample` ids. Passing the bare ids fails a perfectly good run.
-
-Target box: 28 cores, ~503 GB RAM, **Docker only** (no singularity/apptainer), **Nextflow not
-pre-installed**, run in `screen`. So: always `-profile docker`; run scripts check for
-`nextflow`; **not** SLURM/`sbatch`.
-
-**Versions are hard requirements, not preferences:** sarek 3.9.0 pins
-`nextflowVersion = '!>=25.10.2'` (the leading `!` makes a lower version a launch failure), and
-Nextflow 25.10 needs **Java 17+** — not 11.
-
-## The pinned sarek command (every token is deliberate — do not add flags not listed)
+`variant-caller` v1 turns tumour/normal **FASTQ** + a **samplesheet** into **one paired
+somatic VCF per patient**, by shelling out to a single pinned `nextflow run` of a sibling
+clone of stock **nf-core/sarek 3.9.0** at `../sarek`. It does not `include` sarek modules,
+fork it, or reimplement calling. There is no `main.nf`, no `modules/`, no `workflows/`.
 
 ```
-nextflow run ../sarek -profile docker -c <RESOURCE_CONFIG> \
-  --step mapping --tools mutect2 --wes --igenomes_ignore true \
-  --input <samplesheet.csv> --outdir <outdir> \
-  --intervals <target_pad30.bed> --nucleotides_per_second 1000 \
-  --fasta Homo_sapiens_assembly38.fasta --fasta_fai ...fasta.fai --dict ...dict \
-  --germline_resource af-only-gnomad.hg38.vcf.gz \
-  --skip_tools baserecalibrator,fastqc,mosdepth,samtools,multiqc,bcftools,vcftools \
-  --markduplicates_pixel_distance 2500 --trim_fastq --trim_nextseq \
-  --save_reference -resume
+bin/vc.py                       the entire CLI: bed | sheet | run
+bin/assert_output.py            the output contract, asserted on the produced VCF
+params/pilot.yaml               every sarek parameter, with the reason for each
+assets/samplesheet_template.csv edit this; sarek's own 7 columns
+nextflow.config                 resource overrides for the run box (resources only)
+tests/                          python3 -m unittest discover -s tests
 ```
 
-## Key domain facts
+Dependencies: `bedtools`, `pybedtools`, `pyyaml`; plus `nextflow` 25.10.x, Java 17+ and
+Docker to run. **The old "dependency-light, pure awk/coreutils" mandate is withdrawn** —
+2026-07-30, on the user's instruction: delegate to published tools, keep the code small and
+readable, and only write bespoke logic where nothing published does the job.
 
-- **`--trim_fastq`, `--trim_nextseq`, `--wes` and `--save_reference` are boolean** bare flags in
-  this clone; `--nucleotides_per_second` (default 200000, we use 1000) and
-  `--markduplicates_pixel_distance` are integers.
-- **`--trim_nextseq` alone does nothing.** FASTP is gated on
-  `params.trim_fastq || params.split_fastq > 0 || params.umi_location`
-  (`subworkflows/local/fastq_preprocess_gatk/main.nf:107`) — without `--trim_fastq` the process
-  never runs and no poly-G trim happens, silently. The reads are NovaSeq 6000 (2-colour).
-- **The bwa-mem2 index build needs ~87 GB RAM** (`280 MB × ceil(fasta_size / 10 MB)`,
-  `modules/nf-core/bwamem2/index/main.nf:5`). This is why the run is highmem-only, and why we
-  pass `--save_reference` (sarek's default `save_reference = false` throws the index away).
-- **`--germline_resource` doubles** as the GetPileupSummaries/contamination source. Without it,
-  the clone **silently** publishes the *unfiltered* VCF (FILTER all `.`) — so passing it is
-  required and `assert_output.py` is a mandatory safety net.
-- **The target BED must be exactly 3 columns.** `create_intervals_bed` reads column 5 as a
-  per-region runtime-seconds estimate; extra columns silently break the scatter.
-- **The target BED must be in the REFERENCE's contig order, never lexicographic.** This broke the
-  first pilot run (2026-07-27). `sort -k1,1` orders contig *names as strings*, so `chr19` lands
-  before `chr2` and `chrM` before `chrX`. sarek reads `--intervals` rows **in the order given**
-  and GATK's `GatherPileupSummaries` assumes the resulting shards are in sequence-dictionary
-  order, so a lexicographic BED yields a gathered pileup table whose records run backwards and
-  `CalculateContamination` dies with `Invalid interval. Contig:chr22 start:42062823 end:40827186`.
-  **`sort -V` is not a fix** — it still puts `chrM` before `chrX`. Always order by the `.fai`
-  (`bed_sort_by_fai` in `bin/lib_bed.sh`). Note the *interval content* is unaffected: merging is
-  per-contig, so only the row order is wrong — but that is enough to fail the run.
-- **Labels/patient grouping are DECLARED, never inferred.** The UrCa Nr-odd/even filename habit
-  is a vendor convention; DRAGEN VCFs order genotype columns normal-then-tumour against a
-  tumour-then-normal filename, so guessing is unsafe.
-- **Downcast:** `tumour` → status 1; `tumour_adjacent`/`control_healthy`/`control_benign` →
-  status 0. Emitted samplesheet header: `patient,sex,status,sample,lane,fastq_1,fastq_2`
-  (`sex=NA`, `lane=L001`).
-- **Patient id must be e.g. `P11`, NEVER the order id `S000021`** (that collapses the cohort
-  into one individual and crosses every tumour against every normal).
-- **v1 is paired somatic only.** Mutect2 also has a tumour-only sub-workflow; a patient with no
-  `status=0` silently routes there and yields a non-paired VCF. Validator + the `_vs_` /
-  by-name-column assertion prevent this.
-- Pilot deliverable: `S12944Nr11_vs_S12944Nr12.mutect2.filtered.vcf.gz`.
+## The rule that decides what belongs here
 
-## Dev-box constraints
+Delete anything sarek, bedtools or nf-schema already does. Every check that remains was
+**measured** to have no published equivalent:
 
-Helper tools must be dependency-light: **pure `python3` stdlib** (no pysam/pandas) and
-`awk`/coreutils bash only. On this dev box `docker`, `java`, `nextflow`, `bgzip`, `tabix`,
-`shellcheck` are **not** available — validate with `bash -n` / `python3 -m py_compile`.
-(`bedtools` 2.31.1 was apt-installed on the dev box during a 2026-07-27 audit, but nothing in
-`bin/` may depend on it: the target box runs these helpers too.)
+- **The intervals contract** (`vc.is_canonical`). A canonical BED is a fixed point of
+  `sort -faidx | merge | slop -b 0`. Measured on the BED that killed a run:
+  `gatk BedToIntervalList` exits 0 and silently reorders it, `nextflow -preview` reports
+  success in 30.4 s, `bedtools sort | diff` catches 1 of 5 hazards. Known gap: a zero-length
+  interval passes (GATK rejects it loudly, so it is not silent).
+- **The tumour/normal cardinality rules** (`vc.check_sheet`). mutect2 is absent from sarek's
+  `tools_requiring_normal_samples`, so a patient with no `status=0` row runs **tumour-only and
+  completes**. `status: 1.00` parses as a BigDecimal; an absent status column defaults every
+  row to 0. csvtk/mlr can compute the tally but cannot fail on it; PEP/eido validated a
+  tumour-only sheet as "Validation successful".
+- **`--germline_resource` existence.** The only Mutect2 reference param with no
+  `"exists": true` in sarek's schema, and without it sarek publishes the **unfiltered** VCF.
+- **Free space on `/var/lib/containerd`.** docker 29.x writes image layers there regardless of
+  `data-root`; two pilot runs died on it after 2h47m and 44m.
+- **The VCF output contract** (`assert_output.py`). Four of its checks have no `bcftools`
+  equivalent.
 
-## Scope boundaries (v1 vs v2)
+nf-schema already validates `--input`, `--intervals`, `--fasta`, `--fasta_fai`, `--dict` and
+every per-row FASTQ path, aborting before any task — do not re-add those checks.
 
-**v1:** FASTQ + declared labels → one paired somatic Mutect2 VCF per patient, by wrapping the
-local sarek clone. That is all.
+## Key domain facts (do not re-derive)
 
-**NOT in v1 (v2 or downstream):** kit registry / bait BED / hybrid-capture QC; tumour-only
-mode; preference-ordered normal selection; epitopeprediction handoff samplesheet; annotation /
-VEP; multiple callers; BQSR; MultiQC / QC bundle; a GUI. When editing docs, keep every file
-consistent with the pinned command and the output contract; do not reintroduce the parked
-pre-reversal vision as if it were v1.
+- **The target BED must be in the reference's contig order**, never lexicographic. `sort -k1,1`
+  and `bedtools sort` without `-faidx` both put chr19 before chr2 and chrM before chrX; sarek
+  reads `--intervals` in the order given and GATK's `GatherPileupSummaries` assumes dictionary
+  order, so such a BED dies in `CalculateContamination` ~30 min in. `sort -V` is not a fix.
+- **The BED must be exactly 3 columns.** `create_intervals_bed` reads column 5 as a per-region
+  runtime estimate: a 6-column BED yields 107,247 shards instead of 83.
+- Canonical BED: **214,494 regions / 49,633,134 bp**, md5 `69ed88c5131c8613efe5e20e66954e74`.
+  Padding is 30 bp because that is CeGaT's own DRAGEN setting; their coverage metrics
+  (49,599,660 bp) confirm calls are reported over the padded territory.
+- **`--trim_nextseq` alone is a silent no-op** — FASTP is gated on
+  `trim_fastq || split_fastq || umi_location`.
+- **`--igenomes_ignore true` is load-bearing.** The schema default `--genome GATK.GRCh38`
+  injects a 1000g panel-of-normals, a `.64.alt` file and WGS intervals, announced only as
+  `log.warn`.
+- **`--nucleotides_per_second 1000`** gives 83 Mutect2 shards; the default 200000 gives **one**.
+- **sarek writes the read group as `SM:<patient>_<sample>`**, so the VCF's genotype columns are
+  patient-prefixed while the FILE is named from the bare sample ids. Passing the bare ids to
+  `assert_output.py` fails a perfectly good run.
+- **`patient` must be the individual (`P11`), never the order id `S000021`.**
+- **A swapped `status` is undetectable** by anything here or in sarek — `vc.py run` prints the
+  pairing table so the error is at least visible.
+- Nextflow must be **25.10.x**: `get.nextflow.io` now installs 26.04.6, under which the pinned
+  command aborts on a valid paired samplesheet.
+- The published **BWA-MEM1 index** at `gs://gcp-public-data--broad-references/hg38/v0/
+  Homo_sapiens_assembly38.fasta.64.*` is byte-identical to the one sarek spends 1h14m building.
 
-**v3 (recorded 2026-07-24, not started):** replace CeGaT's exome bioinformatics **Levels 2–5** —
-consume Level 1 (FASTQ + CSV) and deliver mapping, SNV/indel **and ROH** calling, annotation,
-CNV calling and variant comparison. Full mapping, the five real gaps and the decisions it
-reopens: **[`docs/roadmap.md`](docs/roadmap.md)**. Load-bearing fact: **sarek has no ROH support
-at all** (`modules/nf-core/bcftools/` has no `roh`, and `--tools` has no ROH entry) — it is the
-one Level 1–5 capability that is missing rather than merely switched off. Do **not** pull v3
-scope into v1.
+## Scope
+
+**v1:** FASTQ + samplesheet → one paired somatic Mutect2 VCF per patient. That is all.
+**Not v1:** tumour-only mode, annotation/VEP, multiple callers, BQSR, QC bundle, a GUI, a kit
+registry. **v3** (recorded, not started): replace CeGaT exome Levels 2–5 — see
+[`docs/roadmap.md`](docs/roadmap.md); sarek has no ROH support at all.
 
 ## Where to work
 
-Develop only inside this repo. The siblings `../sarek`, `../fastq-to-fasta`, `../docs` are
-**read-only reference** — never modify them.
+Only inside this repo. The siblings `../sarek`, `../fastq-to-fasta`, `../docs` are read-only
+reference — never modify them. The full audit behind these decisions is
+`../docs/bed-to-sarek-annotated.md`.

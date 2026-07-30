@@ -53,7 +53,7 @@ the gzip module). It checks:
 6. Reference is **GRCh38** — `##contig` lines present.
 
 On any failure it exits non-zero with a message naming the **first failed check**.
-`scripts/run_pilot.sh` calls it for you once the VCF is produced. To check by hand you pass the
+`bin/vc.py run` calls it for you once the VCF is produced. To check by hand you pass the
 declared tumour and normal ids so the by-name column check (3, 4) can run:
 
 ```bash
