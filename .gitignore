@@ -54,3 +54,6 @@ venv/
 .DS_Store
 *.swp
 *~
+
+# local-only notes, deliberately not published
+docs/

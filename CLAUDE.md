@@ -10,11 +10,15 @@ clone of stock **nf-core/sarek 3.9.0** at `../sarek`. It does not `include` sare
 fork it, or reimplement calling. There is no `main.nf`, no `modules/`, no `workflows/`.
 
 ```
+README.md                        how to run it — the only user-facing document
 params/pilot.yaml                every sarek parameter, with the reason for each
 nextflow.config                  resource overrides for the run box (resources only)
 assets/samplesheet_template.csv  copy, edit, point params/pilot.yaml at it
-docs/steps.md                    the two commands, and the optional checks
 ```
+
+`docs/` is **untracked on purpose** (2026-07-31): it still exists on disk with the long-form
+introduction, output contract, roadmap and runbook, but it is not published. Keep the README
+as the single entry point; do not re-add `docs/` to git without being asked.
 
 **THERE IS NO CODE IN THIS REPOSITORY, and that is deliberate** (2026-07-30, on the user's
 explicit instruction: "I want minimal code, simply join the bed files in a one liner and
@@ -26,7 +30,7 @@ Nextflow 25.10.x, Java 17+, Docker.
 ## What is NOT checked any more, and how each fails
 
 All five were previously enforced and were deleted with the code. Every one fails SILENTLY or
-expensively, so if a run produces something surprising, start here. `docs/steps.md` documents
+expensively, so if a run produces something surprising, start here. The README documents
 each as an optional one-line check:
 
 - **The intervals contract.** A canonical BED is a fixed point of
@@ -83,8 +87,8 @@ per-row FASTQ path, aborting before any task — so those failures at least rema
 
 **v1:** FASTQ + samplesheet → one paired somatic Mutect2 VCF per patient. That is all.
 **Not v1:** tumour-only mode, annotation/VEP, multiple callers, BQSR, QC bundle, a GUI, a kit
-registry. **v3** (recorded, not started): replace CeGaT exome Levels 2–5 — see
-[`docs/roadmap.md`](docs/roadmap.md); sarek has no ROH support at all.
+registry. **v3** (recorded, not started): replace CeGaT exome Levels 2–5 — see the local, untracked
+`docs/roadmap.md`; sarek has no ROH support at all.
 
 ## Where to work
 
