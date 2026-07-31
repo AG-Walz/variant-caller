@@ -57,6 +57,15 @@ P11,NA,1,S12944Nr11,L001,/abs/Nr11.1.fastq.gz,/abs/Nr11.2.fastq.gz
 P11,NA,0,S12944Nr12,L001,/abs/Nr12.1.fastq.gz,/abs/Nr12.2.fastq.gz
 ```
 
+To avoid typing long paths, generate the rows and fill in patient and status:
+
+```bash
+for f in /abs/path/*.1.fastq.gz; do
+  s=$(basename "$f" .1.fastq.gz)
+  printf 'PATIENT,NA,STATUS,%s,L001,%s,%s\n' "$s" "$f" "${f%.1.fastq.gz}.2.fastq.gz"
+done
+```
+
 ## 4. Run
 
 ```bash
