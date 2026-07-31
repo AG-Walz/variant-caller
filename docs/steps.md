@@ -63,9 +63,6 @@ padding to contig lengths; chrM is 16,569 bp and the mito panel tiles all of it,
 run past the end and GATK rejects out-of-bounds intervals. `slop` refuses to run without `-g`;
 `sort` will happily run without `-faidx`.
 
-Padding is 30 bp because that is CeGaT's own DRAGEN setting (`--vc-target-bed-padding 30`);
-their coverage metrics (49,599,660 bp) confirm calls are reported over the padded territory.
-
 ## Once per box
 
 ```bash
@@ -139,8 +136,9 @@ Not required, no code — run them by hand if you want them.
 
 ```bash
 # the intervals BED is canonical iff it is a fixed point of bedtools' own pipeline
-bedtools sort -faidx $FAI -i references/target_pad30.bed | bedtools merge -i - \
-  | bedtools slop -i - -g $FAI -b 0 | cmp - references/target_pad30.bed && echo BED OK
+BED="references/target_pad${PAD:-30}.bed"
+bedtools sort -faidx $FAI -i $BED | bedtools merge -i - \
+  | bedtools slop -i - -g $FAI -b 0 | cmp - $BED && echo BED OK
 
 # free space where docker actually puts image layers (NOT its data-root) — exhausting
 # this killed two runs, after 2h46m59s and 44m17s
