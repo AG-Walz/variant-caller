@@ -57,3 +57,4 @@ venv/
 
 # local-only notes, deliberately not published
 docs/
+CLAUDE.md
