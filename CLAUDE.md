@@ -23,7 +23,7 @@ as the single entry point; do not re-add `docs/` to git without being asked.
 **THERE IS NO CODE IN THIS REPOSITORY, and that is deliberate** (2026-07-30, on the user's
 explicit instruction: "I want minimal code, simply join the bed files in a one liner and
 assuming the samplesheet stands run the sarek with the chosen settings"). Do not reintroduce
-scripts. The target BED is a bedtools one-liner in `docs/steps.md`; the run is
+scripts. The target BED is a bedtools one-liner in `README.md`; the run is
 `nextflow run ../sarek -params-file params/pilot.yaml`. Dependencies: bedtools, curl,
 Nextflow 25.10.x, Java 17+, Docker.
 
