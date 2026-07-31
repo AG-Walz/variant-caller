@@ -57,9 +57,11 @@ per-row FASTQ path, aborting before any task — so those failures at least rema
   order, so such a BED dies in `CalculateContamination` ~30 min in. `sort -V` is not a fix.
 - **The BED must be exactly 3 columns.** `create_intervals_bed` reads column 5 as a per-region
   runtime estimate: a 6-column BED yields 107,247 shards instead of 83.
-- Canonical BED: **214,494 regions / 49,633,134 bp**, md5 `69ed88c5131c8613efe5e20e66954e74`.
-  Padding is 30 bp because that is CeGaT's own DRAGEN setting; their coverage metrics
-  (49,599,660 bp) confirm calls are reported over the padded territory.
+- Canonical BED at the default padding: **214,494 regions / 49,633,134 bp**, md5
+  `69ed88c5131c8613efe5e20e66954e74`. **Padding is a parameter, `PAD`, defaulting to 30** — set
+  on the BED command line, recorded in `params/pilot.yaml` via the filename `target_pad<n>.bed`.
+  30 bp is CeGaT's own DRAGEN setting and their coverage metrics (49,599,660 bp) match our
+  padded territory to 0.07 %, so changing it ends comparability with their calls.
 - **`--trim_nextseq` alone is a silent no-op** — FASTP is gated on
   `trim_fastq || split_fastq || umi_location`.
 - **`--igenomes_ignore true` is load-bearing.** The schema default `--genome GATK.GRCh38`

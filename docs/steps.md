@@ -4,19 +4,55 @@ Two commands. There is no code in this repository: the target BED is a bedtools 
 and the run is stock nf-core/sarek driven by `params/pilot.yaml`.
 
 ```bash
-# 1. the target BED (once per reference)
+# 1. the target BED (once per reference and padding)
+PAD="${PAD:-30}"                                    # <- THE PARAMETER. Override: PAD=50 ...
 FAI=references/Homo_sapiens_assembly38.fasta.fai
 T=https://www.twistbioscience.com/content/dam/twistbioscience/resources
 cat <(curl -sL $T/2019-09/Twist_Exome_RefSeq_targets_hg38.bed) \
     <(curl -sL $T/2020-04/Twist_MitoPanel_chrM_all_hg38_target.bed) \
   | bedtools sort -faidx $FAI | bedtools merge -i - \
-  | bedtools slop -i - -g $FAI -b 30 | bedtools merge -i - > references/target_pad30.bed
+  | bedtools slop -i - -g $FAI -b "$PAD" | bedtools merge -i - > "references/target_pad${PAD}.bed"
 
 # 2. the run
 nextflow run ../sarek -profile docker -c nextflow.config -params-file params/pilot.yaml -w work -resume
 ```
 
-Expected BED: **214,494 regions / 49,633,134 bp**, md5 `69ed88c5131c8613efe5e20e66954e74`.
+At the default, `PAD=30`: **214,494 regions / 49,633,134 bp**, md5 `69ed88c5131c8613efe5e20e66954e74`.
+
+### Changing the padding
+
+`PAD` is set in exactly one place — on the command line of step 1 — and **recorded** in
+`params/pilot.yaml`, because the output filename carries it:
+
+```yaml
+intervals: references/target_pad30.bed     # <- must name the file you actually built
+```
+
+Build with `PAD=50` and you get `references/target_pad50.bed`, so the two cannot silently
+drift: if you forget to update `intervals:`, sarek aborts at launch with
+`* --intervals (references/target_pad30.bed): the file or directory does not exist` — nf-schema
+checks that path before any task runs. A mismatch is a loud failure, not a wrong result.
+
+Measured effect on the real kit files (shard count uses sarek's own chunking rule at
+`nucleotides_per_second: 1000`):
+
+| PAD | regions | bp | Mutect2 shards | bp vs default |
+|---:|---:|---:|---:|---:|
+| 0 | 215,624 | 36,731,808 | 62 | −26.0 % |
+| 10 | 215,196 | 41,038,921 | 69 | −17.3 % |
+| **30** | **214,494** | **49,633,134** | **83** | **default** |
+| 50 | 204,794 | 58,081,423 | 97 | +17.0 % |
+| 100 | 189,701 | 77,707,081 | 130 | +56.6 % |
+
+Region counts *fall* as padding rises because flanks fuse neighbouring targets: at 30 bp,
+1,130 pairs that sit 1–60 bp apart merge into one row each.
+
+Two consequences before you change it. **Comparability:** 30 bp is CeGaT's own DRAGEN setting
+(`--vc-target-bed-padding 30`, from the header of the VCF they delivered), and their coverage
+metrics — 49,599,660 bp of target territory — match our padded 49,633,134 bp to 0.07 %. A
+different padding means you are no longer calling over the same territory they did.
+**Cache:** the BED content changes, so every interval-dependent task re-runs under `-resume`
+(the ~83 Mutect2 shards and ~166 pileup tasks); alignment and duplicate marking stay cached.
 
 **Two flags in that one-liner are load-bearing.** `-faidx` orders contigs the way the
 *reference* does; without it bedtools sorts contig names as strings (chr19 before chr2, chrM

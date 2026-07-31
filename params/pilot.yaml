@@ -19,7 +19,10 @@ input:  assets/samplesheet_pilot.csv
 outdir: results
 
 # --- the target and the scatter ----------------------------------------------
-intervals: references/target_pad30.bed
+intervals: references/target_pad30.bed   # the filename carries the padding used to build it:
+                               # rebuild with PAD=n (docs/steps.md) and point this line at
+                               # target_pad<n>.bed. 30 bp is CeGaT's own DRAGEN setting.
+                               # A mismatch fails at launch — nf-schema checks this path.
 nucleotides_per_second: 1000   # 49,633,134 bp / 1000 / 600 -> 83 Mutect2 shards.
                                # At the schema default of 200000 the whole exome scores
                                # 248 "seconds", never crosses the 600 chunk threshold,
