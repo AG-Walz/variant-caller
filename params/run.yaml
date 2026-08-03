@@ -1,8 +1,14 @@
-# params/pilot.yaml — every sarek parameter for the v1 pilot run.
+# params/run.yaml — the sarek parameters that are tuned, with the reason for each.
 #
-# Passed to the sarek clone with `-params-file`, so the whole run is this file plus
-# `nextflow.config`. The samplesheet it points at is host-dependent (absolute FASTQ paths),
-# so it is not in this repo — copy assets/samplesheet_template.csv to the name below.
+# Passed to the sarek clone with `-params-file`, so a run is this file, `nextflow.config`
+# for resources, and the three per-cohort paths on scripts/run.sh's command line.
+#
+# It stays a file rather than becoming inline --flags for one reason: bash cannot carry a
+# comment inside a backslash-continued command, so moving these onto the command line would
+# delete the rationale below — including the four settings whose absence fails SILENTLY
+# (igenomes_ignore, nucleotides_per_second, trim_fastq, germline_resource). nf-core's own
+# `create-params-file` emits exactly this artefact, and all three peer pipelines document
+# `-params-file` as the way to do it.
 
 # --- what to run -------------------------------------------------------------
 step: mapping              # start from FASTQ (not from BAM/CRAM)
@@ -15,15 +21,10 @@ igenomes_ignore: true      # LOAD-BEARING: without it the schema default --genom
                            # index, and a WGS intervals BED — each announced only as a
                            # log.warn
 
-# --- inputs and outputs ------------------------------------------------------
-input:  assets/samplesheet_pilot.csv
-outdir: results
-
-# --- the target and the scatter ----------------------------------------------
-intervals: references/target_pad30.bed   # the filename carries the padding used to build it:
-                               # rebuild with PAD=n (README step 2) and point this line at
-                               # target_pad<n>.bed. 30 bp is CeGaT's own DRAGEN setting.
-                               # A mismatch fails at launch — nf-schema checks this path.
+# --- the scatter -------------------------------------------------------------
+# input:, outdir: and intervals: are NOT here. They are the three things that change per
+# cohort, so they live on the command line in scripts/run.sh where you can see and edit
+# them. Everything below is tuned and explained, and changing it changes the calls.
 nucleotides_per_second: 1000   # 49,633,134 bp / 1000 / 600 -> 83 Mutect2 shards.
                                # At the schema default of 200000 the whole exome scores
                                # 248 "seconds", never crosses the 600 chunk threshold,
@@ -41,7 +42,7 @@ germline_resource_tbi: references/af-only-gnomad.hg38.vcf.gz.tbi
 # `bcftools view -f PASS` and gets nothing. Supplying the _tbi we already download skips
 # a measured 1m07s / 3 GB TABIX_GERMLINE_RESOURCE task.
 
-# scripts/setup.sh downloads the published BWA-MEM1 index, so point at it: that skips a
+# scripts/setup.py downloads the published BWA-MEM1 index, so point at it: that skips a
 # measured 1h14m50s BWAMEM1_INDEX build. It changes BWAMEM1_MEM's input identity and so
 # invalidates cached alignments — comment it out again if you must -resume an older run.
 bwa: references/bwa

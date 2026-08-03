@@ -13,15 +13,27 @@ owns its own evidence and can be re-run, re-tuned and audited.
 **Wrap stock nf-core/sarek 3.9.0; do not fork or reimplement it.** The clone lives beside this repo
 at `../sarek`, unmodified, pinned to tag 3.9.0. We supply parameters, not code.
 
-**Three scripts, minimal code, heavy comments** (2026-08-03, reversing 2026-07-30). The repository
-had grown to 2,606 lines of scripts, validators and tests; on 2026-07-30 all of it was deleted, and
-the README asked the operator to paste a `bedtools` pipeline and a `nextflow` invocation by hand.
-That traded one failure mode for another: nothing to read, but a lot to type correctly. The
-reinstated `scripts/setup.sh`, `scripts/build_bed.sh` and `scripts/run.sh` are 61 command lines
-between them, wrapped in explanation — the constraint is command count, not line count.
+**Three scripts: two Python utilities and a launch template** (2026-08-03, reversing 2026-07-30).
+The repository had grown to 2,606 lines of scripts, validators and tests; on 2026-07-30 all of it
+was deleted, and the README asked the operator to paste a `bedtools` pipeline and a `nextflow`
+invocation by hand. That traded one failure mode for another: nothing to read, but a lot to type
+correctly. `scripts/` came back — and then changed shape again the same day, once the question was
+settled by looking at what the neighbouring pipelines actually do rather than by argument.
 
-What did NOT come back: the validators, the tests, the argument parsing and the five guarantees
-below. `build_bed.sh` makes the intervals contract true by construction instead of asserting it.
+`scripts/setup.py` and `scripts/build_bed.py` are Python with `argparse`, because nf-core/
+epitopeprediction 3.1.0 and nf-core/mhcquant 3.2.0 contain no shell utilities at all: all nine
+`bin/` scripts across the two are Python with a module docstring, named functions and `help=` on
+every flag, so `--help` is the documentation. `scripts/run.sh` is a literal editable template,
+because AG-Walz's own fastq-to-fasta launches sarek exactly that way — `nextflow run` with one flag
+per line and real paths inline. The measure is total lines a reader must get through: the bash
+version was 312 lines at 79 % comment, this is 205 at 30 %.
+
+Every path is an argument, with no defaults, so a wrong path is a usage error rather than a silent
+fallback to another cohort's data. The single hardcoded value is sarek's tag `3.9.0`: which files
+to use is the operator's choice, which sarek this is validated against is not.
+
+What did NOT come back: the validators, the tests and the five guarantees below.
+`build_bed.py` makes the intervals contract true by construction instead of asserting it.
 
 **Five guarantees were given up with that code**, each of which fails silently or expensively — the
 samplesheet cardinality rules, the intervals contract, the germline-resource check, the container
@@ -52,9 +64,10 @@ annotation happens downstream in nf-core/epitopeprediction.
 cross-check). At the default padding it is 214,494 regions / 49,633,134 bp, md5
 `69ed88c5131c8613efe5e20e66954e74`.
 
-**Padding is a parameter, `PAD`, defaulting to 30 bp** — the sequencing vendor's own DRAGEN setting.
+**Padding is a required argument, `build_bed.py --padding`, and this cohort uses 30 bp** — the
+sequencing vendor's own DRAGEN setting.
 Their coverage metrics match our padded territory to 0.07 %, so changing it ends comparability with
-their calls. The output filename carries the value, so the BED and `params/pilot.yaml` cannot drift
+their calls. The output filename carries the value, so the BED and `--intervals` cannot drift
 apart silently.
 
 **Rows must be in the reference's contig order, and the file must be exactly three columns.** Both
@@ -85,14 +98,26 @@ users type `status` directly; a CLI operator is assumed to be trusted.
 **Nextflow is pinned to 25.10.x.** sarek 3.9.0 requires `>=25.10.2`, but the current installer ships
 26.04.6, under which the pinned invocation aborts on a valid paired samplesheet.
 
-**Every parameter lives in `params/pilot.yaml`, not on the command line.** A truncated paste of the
-old flag list once produced an orphaned run; a file cannot be half-pasted.
+**Tuned parameters live in `params/run.yaml`; the three per-cohort paths live on the command line**
+(2026-08-03). A truncated paste of the old flag list once produced an orphaned run, and a file
+cannot be half-pasted — but `--input`, `--outdir` and `--intervals` are what actually change between
+cohorts, so they belong where you can see them. The rest stay in the file because bash cannot carry
+a comment inside a backslash-continued command: moving them inline would delete the rationale for
+the four settings that fail silently. All three peer nf-core pipelines document `-params-file` for
+exactly this, and warn against putting parameters in `-c`.
 
 **bwa-mem1 today; bwa-mem2 at the next fresh cohort** (2026-07-31). The published BWA-MEM1 index is
-byte-identical to what sarek builds, so it is a download rather than a 1h15m build. `setup.sh`
-downloads it and `params/pilot.yaml` points at it as of 2026-08-03: adopting it invalidates cached
+byte-identical to what sarek builds, so it is a download rather than a 1h15m build. `setup.py`
+downloads it and `params/run.yaml` points at it as of 2026-08-03: adopting it invalidates cached
 alignments, and the pilot's cache was already lost to an unrelated change, so this was the cheap
 moment. bwa-mem2 is roughly twice as fast but has no public index — a cohort boundary decision.
+
+**Reference downloads are checksum-pinned** (2026-08-03). `assets/references.txt` carries a third
+column holding the md5 Google Cloud Storage publishes for each object, and `setup.py` passes it to
+`aria2c --checksum`. The column is optional, so a mirror that publishes no digest still works. This
+closes a real hole rather than a theoretical one: `--continue` treats a file of the right SIZE as
+finished, so a reference corrupted in place is never re-fetched — measured, by corrupting 8 bytes
+without changing the length and watching aria2c exit 0 at 0 B/s. With the digest it re-downloads.
 
 **The run sets `NXF_OPTS=-Djava.net.preferIPv6Addresses=true`** (2026-08-03). sarek's own config
 includes the nf-core institutional config over https; the JVM prefers IPv4, and on an IPv6-only

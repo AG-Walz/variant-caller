@@ -58,3 +58,6 @@ venv/
 # local-only notes, deliberately not published
 docs/
 CLAUDE.md
+
+# stray build artefacts
+*.deb

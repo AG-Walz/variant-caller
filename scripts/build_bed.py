@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """Combine capture-kit BED files into the target BED that sarek scatters calling over.
 
-The four bedtools stages are not interchangeable, and each fails expensively rather than
-loudly if it is dropped:
+The four bedtools stages:
 
     sort -faidx   orders rows by the reference's contigs, not alphabetically. A name-ordered
                   BED runs for ~30 minutes and then dies in GATK's CalculateContamination.
@@ -25,8 +24,16 @@ from pathlib import Path
 from urllib.request import urlopen
 
 
-def concatenate(sources: list[str], destination: Path) -> None:
-    """Write every source, local path or URL, into one file."""
+def concatenate_sources(sources: list[str], destination: Path) -> None:
+    """Write every source, local path or URL, into one file.
+
+    This is `cat` with a URL branch, and the loop is what makes it safe: one request per
+    source, each raising on failure. `curl -fsSL url_a url_b` looks equivalent and is not —
+    it returns the exit status of the LAST transfer, so a 404 on any earlier one is
+    swallowed. Measured: a dead exome URL plus a live mitochondrial one produced a valid,
+    correctly ordered, 3-column target BED containing chrM alone (1 region, 16,569 bp) and
+    exit 0. urlopen raises HTTPError naming the URL instead.
+    """
     with destination.open("wb") as combined:
         for source in sources:
             if source.startswith(("http://", "https://")):
@@ -36,25 +43,40 @@ def concatenate(sources: list[str], destination: Path) -> None:
                 combined.write(Path(source).read_bytes())
 
 
-def bedtools(*arguments, output: Path) -> Path:
+def run_bedtools(*arguments, output: Path) -> Path:
     """Run one bedtools subcommand into `output`, aborting if it fails."""
     with output.open("wb") as destination:
+        # check=True matters: a bedtools stage that fails leaves a short or empty file,
+        # and the next stage would happily canonicalise it into a plausible target BED.
         subprocess.run(["bedtools", *map(str, arguments)], stdout=destination, check=True)
     return output
 
 
-def canonicalise(combined: Path, reference_fai: Path, padding: int, output: Path) -> None:
+def build_canonical_bed(combined: Path, reference_fai: Path, padding: int, output: Path) -> None:
     """Sort into reference contig order, merge, pad, merge again."""
     with tempfile.TemporaryDirectory() as workspace:
         stage = Path(workspace)
-        ordered = bedtools("sort", "-faidx", reference_fai, "-i", combined, output=stage / "sorted.bed")
-        merged = bedtools("merge", "-i", ordered, output=stage / "merged.bed")
-        padded = bedtools("slop", "-i", merged, "-g", reference_fai, "-b", padding, output=stage / "padded.bed")
-        bedtools("merge", "-i", padded, output=output)
+        # -faidx orders rows by the reference's contigs. Without it chr10 sorts before chr2
+        # and the run dies ~30 min in, inside GATK's CalculateContamination.
+        ordered = run_bedtools("sort", "-faidx", reference_fai, "-i", combined, output=stage / "sorted.bed")
+        # Collapse the overlaps that two kit files inevitably share, before padding widens
+        # them. merge also emits exactly 3 columns, which is a constraint in its own right.
+        merged = run_bedtools("merge", "-i", ordered, output=stage / "merged.bed")
+        # -g gives slop the contig lengths, so padding is clamped at the end of a chromosome
+        # instead of running off into coordinates that do not exist.
+        padded = run_bedtools("slop", "-i", merged, "-g", reference_fai, "-b", padding, output=stage / "padded.bed")
+        # Padding pushes neighbouring regions into each other; without this second merge the
+        # output overlaps itself and the same variant is called twice in two shards.
+        run_bedtools("merge", "-i", padded, output=output)
 
 
-def describe(bed: Path) -> str:
-    """Region count, total territory and digest — compare these against your last good build."""
+def summarise_bed(bed: Path) -> str:
+    """Region count, total territory and digest — compare these against your last good build.
+
+    `bedtools summary` covers the first two and was measured against this: it saves two
+    lines, but reports a zero-length interval as 2 bp, and that is the one hazard the
+    fixed-point check cannot catch. The loop stays.
+    """
     regions = territory = 0
     for line in bed.read_text().splitlines():
         _, start, end = line.split("\t")[:3]
@@ -83,9 +105,9 @@ def main() -> None:
     args = parse_args()
     with tempfile.TemporaryDirectory() as workspace:
         combined = Path(workspace) / "combined.bed"
-        concatenate(args.sources, combined)
-        canonicalise(combined, args.reference_fai, args.padding, args.output)
-    print(describe(args.output))
+        concatenate_sources(args.sources, combined)
+        build_canonical_bed(combined, args.reference_fai, args.padding, args.output)
+    print(summarise_bed(args.output))
 
 
 if __name__ == "__main__":

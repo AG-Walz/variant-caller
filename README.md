@@ -3,8 +3,8 @@
 Tumour/normal FASTQ → one paired somatic VCF per patient, by running stock
 [nf-core/sarek](https://github.com/nf-core/sarek) 3.9.0.
 
-Three scripts and a params file. `params/pilot.yaml` holds every sarek setting with the reason
-for each; `scripts/` holds the three commands you actually type.
+Three scripts and a params file. `params/run.yaml` holds every tuned sarek setting with the
+reason for each; `scripts/` holds the three commands you actually type.
 
 ```
 scripts/setup.py      once per box   toolchain check, the sarek clone, the reference files
@@ -32,14 +32,14 @@ export PATH=~/envs/vc/bin:$PATH
 
 ## The whole thing, in order
 
-Run these from the repo root — `params/pilot.yaml` names its paths relative to wherever you
-launch, and nothing here quietly changes directory on you.
+Run these from the repo root — the paths in `scripts/run.sh` and `params/run.yaml` are relative
+to wherever you launch, and nothing here quietly changes directory on you.
 
 ```bash
 # ~30 min: clone sarek 3.9.0 and download the 11.8 GB of GRCh38 reference data listed in the file
 ./scripts/setup.py --file-list assets/references.txt --references-dir references --sarek-dir ../sarek
 
-# ~1 min: this cohort's two Twist kit files, padded 30 bp, into the name params/pilot.yaml expects
+# ~1 min: this cohort's two Twist kit files, padded 30 bp, into the name run.sh points --intervals at
 T=https://www.twistbioscience.com/content/dam/twistbioscience/resources
 ./scripts/build_bed.py \
     --reference-fai references/Homo_sapiens_assembly38.fasta.fai \
@@ -75,7 +75,7 @@ cd /mnt/volume/nacho/variant-caller
 ./scripts/run.sh -preview && ./scripts/run.sh
 ```
 
-That is the whole thing on that box: `setup.sh` and `build_bed.sh` have both already been
+That is the whole thing on that box: `setup.py` and `build_bed.py` have both already been
 satisfied there — the reference bundle, the BWA index, `references/target_pad30.bed`,
 `../sarek` at tag 3.9.0 and `assets/samplesheet_pilot.csv` for pair P11 are all in place.
 `nextflow` is **not** on the default PATH there, which is what the first line is for.
@@ -115,8 +115,8 @@ done
     kit_targets.bed https://vendor/panel.bed
 ```
 
-Put the padding in the output name and point `intervals:` in `params/pilot.yaml` at it — that
-way a BED built at one padding cannot be picked up by a params file expecting another.
+Put the padding in the output name and point `--intervals` in `scripts/run.sh` at it — that way a
+BED built at one padding cannot be picked up by a run expecting another.
 
 30 bp is this cohort's padding because it is the sequencing vendor's own DRAGEN setting, and
 their coverage metrics then match our padded territory to 0.07 % — changing it ends
@@ -142,7 +142,7 @@ Optional sanity checks:
 
 ```bash
 FAI=references/Homo_sapiens_assembly38.fasta.fai
-BED="references/target_pad${PAD:-30}.bed"                       # canonical iff unchanged by:
+BED=references/target_pad30.bed                                 # canonical iff unchanged by:
 bedtools sort -faidx $FAI -i $BED | bedtools merge -i - | bedtools slop -i - -g $FAI -b 0 | cmp - $BED
 df -h /var/lib/containerd                                       # room for image layers
 bcftools query -l  results/variant_calling/mutect2/*/*.vcf.gz   # 2 columns, <patient>_<sample>
