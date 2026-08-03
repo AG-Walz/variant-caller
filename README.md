@@ -6,14 +6,14 @@ Tumour/normal FASTQ → one paired somatic VCF per patient, by running stock
 Two scripts.
 
 ```
-scripts/build_bed.py  once per kit   N capture-kit BEDs -> one canonical padded target BED
-scripts/run.sh        every run      the nextflow command — a template, edit and go
+scripts/build_bed.sh  once per kit   your capture-kit BEDs -> one target BED
+scripts/run.sh        every run      the nextflow command
 ```
 
-`run.sh` is a literal template in the style of
-[fastq-to-fasta](https://github.com/AG-Walz/fastq-to-fasta)'s example scripts: edit the six
-variables at the top and run it. Everything sarek needs beyond the target BED comes from
-`--genome GATK.GRCh38`. `build_bed.py` takes `--arguments`; run it with `--help`.
+Both are literal templates in the style of
+[fastq-to-fasta](https://github.com/AG-Walz/fastq-to-fasta)'s example scripts: edit the
+variables at the top and run. Everything sarek needs beyond the target BED comes from
+`--genome GATK.GRCh38`.
 
 **Purpose:** an independent call set, to check whether the sequencing vendor's own run was
 done correctly. Not a reproduction of their calls — the reference they delivered was the
@@ -34,16 +34,13 @@ GRCh38 bundle — FASTA, `.fai`, `.dict`, the gnomAD germline resource, the BWA 
 known indels — from `s3://ngi-igenomes/igenomes/` on first run, staged into the work directory.
 Nothing to install, at the cost of ~10 GB re-staged whenever you start a fresh work dir.
 
-The one thing sarek will not make for you is the target BED:
+The one thing sarek will not make for you is the target BED. Download your kit's BED files,
+then edit the four variables at the top of `scripts/build_bed.sh` and run it:
 
 ```bash
-T=https://www.twistbioscience.com/content/dam/twistbioscience/resources
-./scripts/build_bed.py \
-    --reference-fai <your reference>.fai \
-    --padding 30 \
-    --output references/target_pad30.bed \
-    $T/2019-09/Twist_Exome_RefSeq_targets_hg38.bed \
-    $T/2020-04/Twist_MitoPanel_chrM_all_hg38_target.bed
+curl -O https://www.twistbioscience.com/.../Twist_Exome_RefSeq_targets_hg38.bed
+curl -O https://www.twistbioscience.com/.../Twist_MitoPanel_chrM_all_hg38_target.bed
+./scripts/build_bed.sh
 ```
 
 It needs the `.fai` of the genome you will call against, to put the regions in contig order.
@@ -67,9 +64,6 @@ cp assets/samplesheet_template.csv assets/samplesheet_pilot.csv && $EDITOR $_
 # the run itself
 ./scripts/run.sh
 ```
-
-Already have the kit BEDs on disk? Pass paths instead of URLs — `build_bed.py` takes either,
-in any mix, in any number.
 
 → `results/variant_calling/mutect2/<T>_vs_<N>/<T>_vs_<N>.mutect2.filtered.vcf.gz`
 
@@ -116,17 +110,11 @@ done
 
 ## A different capture kit or padding
 
-```bash
-./scripts/build_bed.py \
-    --reference-fai references/Homo_sapiens_assembly38.fasta.fai \
-    --padding 50 \
-    --output references/target_pad50.bed \
-    kit_targets.bed https://vendor/panel.bed
-```
-
-Put the padding in the output name and point `--intervals` in `scripts/run.sh` at it — that way a
-BED built at one padding cannot be picked up by a run expecting another. This cohort's two Twist
-files at 30 bp give 214,494 regions / 49,633,134 bp, md5 `69ed88c5131c8613efe5e20e66954e74`.
+Add files to `BEDS` — any number, in any order, they get sorted and merged — and change
+`PADDING` and `OUTPUT`. Put the padding in the output name so a BED built at one padding cannot
+be picked up by a run expecting another, and point `--intervals` in `run.sh` at it. This
+cohort's two Twist files at 30 bp give 214,494 regions / 49,633,134 bp, md5
+`69ed88c5131c8613efe5e20e66954e74`.
 
 ### What padding is, and how to pick one
 
@@ -142,14 +130,26 @@ call over positions with a handful of reads, adding false positives and runtime.
 - **fastq-to-fasta used none either** — its human `run_sarek.sh` passes no `--intervals` at all,
   so it calls over the igenomes WGS calling regions, and the mouse scripts pass `--no_intervals`.
   The question never came up there.
-- **Why 30 here:** it was the sequencing vendor's own DRAGEN setting, chosen so our padded
-  territory matched the 49,599,660 bp they reported, to 0.07 %. That was a *comparability*
-  argument — and it no longer applies, because the goal is now an independent call set rather
-  than a reproduction of theirs. 30 bp is a defensible number, but it is inherited, not derived.
+- **Why 30 here, and why to keep it.** Measured on this kit:
 
-**To derive one from this dataset**, use the coverage the run now produces (`skip_tools` is no
-longer set, so mosdepth runs). Measure how coverage falls off with distance from the target edge
-and pad to where it stops being callable:
+  | padding | regions | territory |
+  |---|---|---|
+  | 0 bp | 215,624 | 36,731,808 bp |
+  | 10 bp | 215,196 | 41,038,921 bp |
+  | **30 bp** | **214,494** | **49,633,134 bp** |
+  | 50 bp | 204,794 | 58,081,423 bp |
+
+  CeGaT reported **49,599,660 bp**, which matches 30 bp to 0.07 % and is **35 % more territory
+  than 0 bp**. So they called with roughly 30 bp of padding, and that is the argument for
+  keeping it — not comparability of *calls*, but coverage. Call with 0 and you cover 12.9 Mb
+  less than they did, so every variant they reported in that skirt looks like a false positive
+  of theirs when it is really a blind spot of yours. A validation call set has to be at least as
+  inclusive as the thing it is validating. Splice acceptor/donor sites also sit 1–10 bp outside
+  the coding exons a kit targets, and 0 bp drops them.
+
+**To derive your own number from this dataset** rather than inheriting theirs, use the coverage
+the run now produces (`skip_tools` is no longer set, so mosdepth runs). Measure how coverage
+falls off with distance from the target edge and pad to where it stops being callable:
 
 ```bash
 # per-base depth in a 200 bp skirt around the unpadded target, bucketed by distance from the edge

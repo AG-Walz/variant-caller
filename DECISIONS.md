@@ -18,16 +18,24 @@ sync. We supply parameters, not code.
 2,606 lines of scripts, validators and tests; on 2026-07-30 all of it was deleted. `scripts/` came
 back the same day, then shrank twice more as sarek turned out to already do the work.
 
-`scripts/build_bed.py` is Python with `argparse`, following the house style of the neighbouring
-pipelines: nf-core/epitopeprediction 3.1.0 and nf-core/mhcquant 3.2.0 contain no shell utilities at
-all — all nine `bin/` scripts across the two are Python with a module docstring, named functions and
-`help=` on every flag, so `--help` is the documentation. `scripts/run.sh` is a literal editable
-template, because AG-Walz's own fastq-to-fasta launches sarek exactly that way.
+Both files are literal editable templates, because AG-Walz's own fastq-to-fasta launches sarek
+exactly that way and because it is the shortest form that still names every value. `build_bed.sh`
+was briefly Python with `argparse`, following nf-core's `bin/` convention; it went back to shell
+when the whole job turned out to be `cat | bedtools sort | merge | slop | merge` — 20 lines against
+114, byte-identical output.
 
-It is the only script because it is the only thing sarek will not do: sarek builds `.fai`, `.dict`,
-the germline `.tbi` and the BWA index itself, and `--genome` fetches the rest — but nothing in it
-turns capture-kit BEDs into a contig-ordered, 3-column target. `build_bed.py` makes that contract
-true by construction rather than asserting it. The validators and tests did not come back.
+There are only two because building the target BED is the only thing sarek will not do: it builds
+`.fai`, `.dict`, the germline `.tbi` and the BWA index itself, and `--genome` fetches the rest, but
+nothing in it turns capture-kit BEDs into a contig-ordered, 3-column target. `build_bed.sh` makes
+that contract true by construction rather than asserting it. The validators and tests did not come
+back.
+
+**The published tool for joining BED files is `cat`** (measured 2026-08-03). BEDOPS
+`bedops --everything` is documented as exactly that operator, but no BEDOPS tool can read a
+`.fai`-ordered BED — they abort at the chr9/chr10 boundary — and `sort-bed` reorders
+lexicographically, which is the failure that kills a run. `bedtk merge a.bed b.bed` silently
+ignores every file after the first. bioframe reproduces the target exactly but hides the
+load-bearing `-faidx` behind an implicit pandas property.
 
 **Five guarantees were given up with that code**, each of which fails silently or expensively — the
 samplesheet cardinality rules, the intervals contract, the germline-resource check, the container
