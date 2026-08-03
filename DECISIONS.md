@@ -13,10 +13,15 @@ owns its own evidence and can be re-run, re-tuned and audited.
 **Wrap stock nf-core/sarek 3.9.0; do not fork or reimplement it.** The clone lives beside this repo
 at `../sarek`, unmodified, pinned to tag 3.9.0. We supply parameters, not code.
 
-**There is no code in this repository** (2026-07-30). It had grown to 2,606 lines of scripts,
-validators and tests; all of it was deleted. The target BED is one `bedtools` pipeline and the run is
-one `nextflow` command. The rule that survived: delete anything sarek, bedtools or nf-schema already
-does, and only write something where a published tool measurably cannot do the job.
+**Three scripts, minimal code, heavy comments** (2026-08-03, reversing 2026-07-30). The repository
+had grown to 2,606 lines of scripts, validators and tests; on 2026-07-30 all of it was deleted, and
+the README asked the operator to paste a `bedtools` pipeline and a `nextflow` invocation by hand.
+That traded one failure mode for another: nothing to read, but a lot to type correctly. The
+reinstated `scripts/setup.sh`, `scripts/build_bed.sh` and `scripts/run.sh` are 61 command lines
+between them, wrapped in explanation — the constraint is command count, not line count.
+
+What did NOT come back: the validators, the tests, the argument parsing and the five guarantees
+below. `build_bed.sh` makes the intervals contract true by construction instead of asserting it.
 
 **Five guarantees were given up with that code**, each of which fails silently or expensively — the
 samplesheet cardinality rules, the intervals contract, the germline-resource check, the container
@@ -84,9 +89,15 @@ users type `status` directly; a CLI operator is assumed to be trusted.
 old flag list once produced an orphaned run; a file cannot be half-pasted.
 
 **bwa-mem1 today; bwa-mem2 at the next fresh cohort** (2026-07-31). The published BWA-MEM1 index is
-byte-identical to what sarek builds, so it is a download rather than a 1h15m build. bwa-mem2 is
-roughly twice as fast but has no public index and would invalidate every cached alignment — a cohort
-boundary decision.
+byte-identical to what sarek builds, so it is a download rather than a 1h15m build. `setup.sh`
+downloads it and `params/pilot.yaml` points at it as of 2026-08-03: adopting it invalidates cached
+alignments, and the pilot's cache was already lost to an unrelated change, so this was the cheap
+moment. bwa-mem2 is roughly twice as fast but has no public index — a cohort boundary decision.
+
+**The run sets `NXF_OPTS=-Djava.net.preferIPv6Addresses=true`** (2026-08-03). sarek's own config
+includes the nf-core institutional config over https; the JVM prefers IPv4, and on an IPv6-only
+host that include fails and takes the run with it before any parameter is read. `NXF_OFFLINE=true`
+skips the include but then fails schema validation, so it is not an alternative.
 
 ## Open
 
