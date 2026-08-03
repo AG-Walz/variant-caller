@@ -43,15 +43,18 @@ the rest is trimming, alignment and duplicate marking. `scripts/run.sh` always p
 ```bash
 export PATH=/mnt/volume/bin/miniconda/bin:$PATH     # nextflow 25.10.4 + openjdk 21 live here
 cd /mnt/volume/nacho/variant-caller
-git pull                                            # brings in scripts/ and params/
-./scripts/build_bed.sh                              # references/ is already populated there
 ./scripts/run.sh -preview && ./scripts/run.sh
 ```
 
-`setup.sh` is not needed on that box: the reference bundle, `../sarek` at tag 3.9.0 and
-`assets/samplesheet_pilot.csv` are already in place. Only the BWA index is missing, and
-`setup.sh` is the way to get it — until then comment out `bwa:` in `params/pilot.yaml` and
-sarek rebuilds it in 1h15m.
+That is the whole thing on that box: `setup.sh` and `build_bed.sh` have both already been
+satisfied there — the reference bundle, the BWA index, `references/target_pad30.bed`,
+`../sarek` at tag 3.9.0 and `assets/samplesheet_pilot.csv` for pair P11 are all in place.
+`nextflow` is **not** on the default PATH there, which is what the first line is for.
+
+Two things about that box specifically. `/` is 96 GB at 83 % and `/var/lib/containerd` holds
+60 GB of it, so check `df -h /var/lib/containerd` before a long run. And it routes IPv6 only —
+which is why `run.sh` sets `NXF_OPTS`; without it sarek cannot fetch the nf-core config it
+includes over https and the run dies before reading a single parameter.
 
 ## The samplesheet
 
