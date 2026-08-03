@@ -8,12 +8,12 @@ There is no code here. `params/pilot.yaml` holds every setting, the target BED i
 
 ## Requirements
 
-`bedtools`, `curl`, Docker, Java 17+, and **Nextflow 25.10.x — not 26.x**, which aborts on a
-valid paired samplesheet. Plus a sibling sarek clone:
+`bedtools`, `curl`, `aria2c`, Docker, Java 17+, and **Nextflow 25.10.x — not 26.x**, which
+aborts on a valid paired samplesheet. Plus a sibling sarek clone:
 
 ```bash
 git clone --branch 3.9.0 --depth 1 https://github.com/nf-core/sarek.git ../sarek
-mamba create -y -p ~/envs/vc -c conda-forge -c bioconda nextflow=25.10.4 openjdk=17 bedtools
+mamba create -y -p ~/envs/vc -c conda-forge -c bioconda nextflow=25.10.4 openjdk=17 bedtools aria2
 export PATH=~/envs/vc/bin:$PATH
 ```
 
@@ -47,9 +47,10 @@ Change `PAD` and point `intervals:` in `params/pilot.yaml` at the new filename.
 
 ## 3. Samplesheet
 
-Copy `assets/samplesheet_template.csv`, edit it, point `input:` in `params/pilot.yaml` at it.
-Absolute paths, on the machine that runs. **`status`: 1 = tumour, 0 = normal**, exactly one
-normal per patient. `patient` is the individual, never the sequencing order id.
+Copy `assets/samplesheet_template.csv` to `assets/samplesheet_pilot.csv` — the name `input:` in
+`params/pilot.yaml` already points at — and edit it. Absolute paths, on the machine that runs.
+**`status`: 1 = tumour, 0 = normal**, exactly one normal per patient. `patient` is the
+individual, never the sequencing order id.
 
 ```csv
 patient,sex,status,sample,lane,fastq_1,fastq_2
