@@ -7,16 +7,18 @@ Three scripts and a params file. `params/pilot.yaml` holds every sarek setting w
 for each; `scripts/` holds the three commands you actually type.
 
 ```
-scripts/setup.sh      once per box   toolchain check, the sarek clone, the reference files
-scripts/build_bed.sh  once per kit   N capture-kit BEDs -> one canonical padded target BED
-scripts/run.sh        every run      the pinned `nextflow run`
+scripts/setup.py      once per box   toolchain check, the sarek clone, the reference files
+scripts/build_bed.py  once per kit   N capture-kit BEDs -> one canonical padded target BED
+scripts/run.sh        every run      the pinned `nextflow run` — a template, edit and go
 ```
 
-Every path is an argument — which reference, which kit files, which padding, where things
-land. Run any of them with no arguments to see what it wants. The only value hardcoded
-anywhere is sarek's tag, `3.9.0`, because that is what the pipeline is validated against.
-Which reference files to fetch is data too, in `assets/references.txt`: edit it, or pass your
-own list, to use a different build or an internal mirror.
+The two utilities take `--arguments`; run either with `--help` to see what it wants. The
+launcher is a template in the style of
+[fastq-to-fasta](https://github.com/AG-Walz/fastq-to-fasta)'s example scripts: copy it, edit
+the paths, run it. The only value hardcoded in the utilities is sarek's tag, `3.9.0`, because
+that is what the pipeline is validated against. Which reference files to fetch is data too, in
+`assets/references.txt`: edit it, or pass your own list, to use a different build or an
+internal mirror.
 
 ## Requirements
 
@@ -35,11 +37,14 @@ launch, and nothing here quietly changes directory on you.
 
 ```bash
 # ~30 min: clone sarek 3.9.0 and download the 11.8 GB of GRCh38 reference data listed in the file
-./scripts/setup.sh assets/references.txt references ../sarek
+./scripts/setup.py --file-list assets/references.txt --references-dir references --sarek-dir ../sarek
 
 # ~1 min: this cohort's two Twist kit files, padded 30 bp, into the name params/pilot.yaml expects
 T=https://www.twistbioscience.com/content/dam/twistbioscience/resources
-./scripts/build_bed.sh references/Homo_sapiens_assembly38.fasta.fai 30 references/target_pad30.bed \
+./scripts/build_bed.py \
+    --reference-fai references/Homo_sapiens_assembly38.fasta.fai \
+    --padding 30 \
+    --output references/target_pad30.bed \
     $T/2019-09/Twist_Exome_RefSeq_targets_hg38.bed \
     $T/2020-04/Twist_MitoPanel_chrM_all_hg38_target.bed
 
@@ -47,13 +52,13 @@ T=https://www.twistbioscience.com/content/dam/twistbioscience/resources
 cp assets/samplesheet_template.csv assets/samplesheet_pilot.csv && $EDITOR $_
 
 # ~40 s: validate every parameter and path, launching nothing
-./scripts/run.sh ../sarek params/pilot.yaml nextflow.config -preview
+./scripts/run.sh -preview
 
 # the run itself
-./scripts/run.sh ../sarek params/pilot.yaml nextflow.config
+./scripts/run.sh
 ```
 
-Already have the kit BEDs on disk? Pass paths instead of URLs — `build_bed.sh` takes either,
+Already have the kit BEDs on disk? Pass paths instead of URLs — `build_bed.py` takes either,
 in any mix, in any number.
 
 → `results/variant_calling/mutect2/<T>_vs_<N>/<T>_vs_<N>.mutect2.filtered.vcf.gz`
@@ -67,8 +72,7 @@ the rest is trimming, alignment and duplicate marking. `scripts/run.sh` always p
 ```bash
 export PATH=/mnt/volume/bin/miniconda/bin:$PATH     # nextflow 25.10.4 + openjdk 21 live here
 cd /mnt/volume/nacho/variant-caller
-./scripts/run.sh ../sarek params/pilot.yaml nextflow.config -preview \
-  && ./scripts/run.sh ../sarek params/pilot.yaml nextflow.config
+./scripts/run.sh -preview && ./scripts/run.sh
 ```
 
 That is the whole thing on that box: `setup.sh` and `build_bed.sh` have both already been
@@ -104,8 +108,11 @@ done
 ## A different capture kit or padding
 
 ```bash
-./scripts/build_bed.sh references/Homo_sapiens_assembly38.fasta.fai 50 \
-    references/target_pad50.bed kit_targets.bed https://vendor/panel.bed
+./scripts/build_bed.py \
+    --reference-fai references/Homo_sapiens_assembly38.fasta.fai \
+    --padding 50 \
+    --output references/target_pad50.bed \
+    kit_targets.bed https://vendor/panel.bed
 ```
 
 Put the padding in the output name and point `intervals:` in `params/pilot.yaml` at it — that
