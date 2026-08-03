@@ -3,52 +3,62 @@
 Tumour/normal FASTQ → one paired somatic VCF per patient, by running stock
 [nf-core/sarek](https://github.com/nf-core/sarek) 3.9.0.
 
-Three scripts and a params file. `params/run.yaml` holds every tuned sarek setting with the
-reason for each; `scripts/` holds the three commands you actually type.
+Two scripts.
 
 ```
-scripts/setup.py      once per box   toolchain check, the sarek clone, the reference files
 scripts/build_bed.py  once per kit   N capture-kit BEDs -> one canonical padded target BED
-scripts/run.sh        every run      the pinned `nextflow run` — a template, edit and go
+scripts/run.sh        every run      the nextflow command — a template, edit and go
 ```
 
-The two utilities take `--arguments`; run either with `--help` to see what it wants. The
-launcher is a template in the style of
-[fastq-to-fasta](https://github.com/AG-Walz/fastq-to-fasta)'s example scripts: copy it, edit
-the paths, run it. The only value hardcoded in the utilities is sarek's tag, `3.9.0`, because
-that is what the pipeline is validated against. Which reference files to fetch is data too, in
-`assets/references.txt`: edit it, or pass your own list, to use a different build or an
-internal mirror.
+`run.sh` is a literal template in the style of
+[fastq-to-fasta](https://github.com/AG-Walz/fastq-to-fasta)'s example scripts: edit the six
+variables at the top and run it. Everything sarek needs beyond the target BED comes from
+`--genome GATK.GRCh38`. `build_bed.py` takes `--arguments`; run it with `--help`.
+
+**Purpose:** an independent call set, to check whether the sequencing vendor's own run was
+done correctly. Not a reproduction of their calls — the reference they delivered was the
+wrong genome build, which is what prompted this.
 
 ## Requirements
 
-`bedtools`, `curl`, `aria2c`, Docker, Java 17+, and **Nextflow 25.10.x — not 26.x**, which
-aborts on a valid paired samplesheet.
+Docker, Java 17+, `bedtools`, and **Nextflow 25.10.x — not 26.x**, which aborts on a valid
+paired samplesheet.
 
 ```bash
-mamba create -y -p ~/envs/vc -c conda-forge -c bioconda nextflow=25.10.4 openjdk=17 bedtools aria2
+mamba create -y -p ~/envs/vc -c conda-forge -c bioconda nextflow=25.10.4 openjdk=17 bedtools
 export PATH=~/envs/vc/bin:$PATH
 ```
 
-## The whole thing, in order
+No reference download step. `--genome GATK.GRCh38` in `scripts/run.sh` makes sarek fetch the
+GRCh38 bundle — FASTA, `.fai`, `.dict`, the gnomAD germline resource, the BWA index, dbSNP and
+known indels — from `s3://ngi-igenomes/igenomes/` on first run, staged into the work directory.
+Nothing to install, at the cost of ~10 GB re-staged whenever you start a fresh work dir.
 
-Run these from the repo root — the paths in `scripts/run.sh` and `params/run.yaml` are relative
-to wherever you launch, and nothing here quietly changes directory on you.
+The one thing sarek will not make for you is the target BED:
 
 ```bash
-# ~30 min: clone sarek 3.9.0 and download the 11.8 GB of GRCh38 reference data listed in the file
-./scripts/setup.py --file-list assets/references.txt --references-dir references --sarek-dir ../sarek
-
-# ~1 min: this cohort's two Twist kit files, padded 30 bp, into the name run.sh points --intervals at
 T=https://www.twistbioscience.com/content/dam/twistbioscience/resources
 ./scripts/build_bed.py \
-    --reference-fai references/Homo_sapiens_assembly38.fasta.fai \
+    --reference-fai <your reference>.fai \
     --padding 30 \
     --output references/target_pad30.bed \
     $T/2019-09/Twist_Exome_RefSeq_targets_hg38.bed \
     $T/2020-04/Twist_MitoPanel_chrM_all_hg38_target.bed
+```
 
-# your samples
+It needs the `.fai` of the genome you will call against, to put the regions in contig order.
+Under `--genome GATK.GRCh38` that file is staged by nextflow rather than sitting on disk; the
+Broad publish the identical one at
+`https://storage.googleapis.com/gcp-public-data--broad-references/hg38/v0/Homo_sapiens_assembly38.fasta.fai`
+(160 KB, `curl -O`).
+
+## The whole thing, in order
+
+Run these from the repo root — the paths in `scripts/run.sh` are relative to wherever you
+launch, and nothing here quietly changes directory on you.
+
+```bash
+# the target BED (above), then your samples
 cp assets/samplesheet_template.csv assets/samplesheet_pilot.csv && $EDITOR $_
 
 # ~40 s: validate every parameter and path, launching nothing
@@ -75,10 +85,9 @@ cd /mnt/volume/nacho/variant-caller
 ./scripts/run.sh -preview && ./scripts/run.sh
 ```
 
-That is the whole thing on that box: `setup.py` and `build_bed.py` have both already been
-satisfied there — the reference bundle, the BWA index, `references/target_pad30.bed`,
-`../sarek` at tag 3.9.0 and `assets/samplesheet_pilot.csv` for pair P11 are all in place.
-`nextflow` is **not** on the default PATH there, which is what the first line is for.
+`references/target_pad30.bed` and `assets/samplesheet_pilot.csv` for pair P11 are already
+there. `nextflow` is **not** on the default PATH on that box, which is what the first line is
+for. The first run under `--genome GATK.GRCh38` will stage ~10 GB from S3.
 
 Two things about that box specifically. `/` is 96 GB at 83 % and `/var/lib/containerd` holds
 60 GB of it, so check `df -h /var/lib/containerd` before a long run. And it routes IPv6 only —
@@ -116,13 +125,43 @@ done
 ```
 
 Put the padding in the output name and point `--intervals` in `scripts/run.sh` at it — that way a
-BED built at one padding cannot be picked up by a run expecting another.
+BED built at one padding cannot be picked up by a run expecting another. This cohort's two Twist
+files at 30 bp give 214,494 regions / 49,633,134 bp, md5 `69ed88c5131c8613efe5e20e66954e74`.
 
-30 bp is this cohort's padding because it is the sequencing vendor's own DRAGEN setting, and
-their coverage metrics then match our padded territory to 0.07 % — changing it ends
-comparability with their calls. This cohort's two Twist files at 30 bp give 214,494 regions /
-49,633,134 bp, md5 `69ed88c5131c8613efe5e20e66954e74`; the script prints all three so you can
-compare against your last good build.
+### What padding is, and how to pick one
+
+A capture kit's BED lists where the probes bind. Probes do not stop capturing at the target
+boundary: a 100 bp read that starts inside the target extends past it, so real coverage runs
+some distance either side. Padding widens each region to include that skirt. Too little and you
+lose splice-site and near-boundary variants that were sequenced perfectly well; too much and you
+call over positions with a handful of reads, adding false positives and runtime.
+
+- **sarek's default: none.** sarek has no padding parameter and passes no `--interval-padding`
+  to GATK — grep the pinned clone and `nextflow_schema.json` for it and you get nothing. It
+  calls exactly the BED you hand it, so the effective default is 0.
+- **fastq-to-fasta used none either** — its human `run_sarek.sh` passes no `--intervals` at all,
+  so it calls over the igenomes WGS calling regions, and the mouse scripts pass `--no_intervals`.
+  The question never came up there.
+- **Why 30 here:** it was the sequencing vendor's own DRAGEN setting, chosen so our padded
+  territory matched the 49,599,660 bp they reported, to 0.07 %. That was a *comparability*
+  argument — and it no longer applies, because the goal is now an independent call set rather
+  than a reproduction of theirs. 30 bp is a defensible number, but it is inherited, not derived.
+
+**To derive one from this dataset**, use the coverage the run now produces (`skip_tools` is no
+longer set, so mosdepth runs). Measure how coverage falls off with distance from the target edge
+and pad to where it stops being callable:
+
+```bash
+# per-base depth in a 200 bp skirt around the unpadded target, bucketed by distance from the edge
+bedtools slop -i target_pad0.bed -g $FAI -b 200 \
+  | bedtools subtract -a - -b target_pad0.bed \
+  | bedtools coverage -a - -b results/preprocessing/recalibrated/*/*.cram -d \
+  | awk '{print $(NF-1)"\t"$NF}' | sort -n | datamash -g1 median 2
+```
+
+Then pad to the last distance whose median depth still clears your calling threshold — for
+somatic work, typically 20–30×. Expect an answer in the 10–50 bp range for a 2×100 bp library;
+if it comes out far from 30, that is itself a finding about the vendor's run.
 
 ## Watch out
 
@@ -130,8 +169,13 @@ compare against your last good build.
   samplesheet before launching.
 - **A patient with no `status=0` row** runs tumour-only, completes, and writes a file *without*
   `_vs_` in its name. Its variants are largely germline.
-- **Without `af-only-gnomad.hg38.vcf.gz`** sarek publishes the *unfiltered* VCF and does not
-  complain; it does not check that this path exists.
+- **`--genome GATK.GRCh38` supplies a panel of normals** (`1000g_pon.hg38.vcf.gz`, wired in at
+  `conf/igenomes.config:76`), and Mutect2 applies it automatically. It changes which calls
+  PASS, and it is announced only as a `log.warn`. It also enables BQSR, since dbSNP and known
+  indels come with it. Both are wanted here; neither is silent-by-accident, so know they are on.
+- **The BED must match the genome `--genome` resolves to.** Build it against that reference's
+  `.fai`, in its contig order. A name-ordered BED runs happily for ~30 minutes and then dies
+  inside `CalculateContamination`.
 - **Docker image layers land in `/var/lib/containerd`**, not in docker's `data-root`. Two runs
   died there on `no space left on device`. Check that filesystem, not the one the repo sits on.
 - **Changing a process's `cpus` in `nextflow.config` can cost you the cache.** fastp is threaded

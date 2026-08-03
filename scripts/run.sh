@@ -1,22 +1,32 @@
 #!/usr/bin/env bash
-# Copy this file, edit the four paths below, run it from the directory they are relative to.
-# Add -preview to validate every path in ~40 s without launching a task.
-#
-# The three --flags are the settings that change per cohort. Everything else is tuned and
-# explained in params/run.yaml; CLI beats -params-file beats nextflow.config, so a flag you
-# add here wins over the file.
+# Copy this file, edit the variables, run it. Add -preview to validate paths without running.
 
-# sarek's config includes an nf-core config over https, fetched by the JVM, which prefers
-# IPv4. On an IPv6-only host that fetch fails and takes the run with it. NXF_OFFLINE=true
-# is not an alternative: it skips the include, then fails schema validation.
+SAREK=3.9.0
+PROFILE=docker
+WORKDIR=work
+SAMPLESHEET=assets/samplesheet_pilot.csv
+OUTDIR=results
+INTERVALS=references/target_pad30.bed
+
+# The JVM prefers IPv4; on an IPv6-only host sarek's https config include fails and the run
+# dies before reading a parameter. Harmless everywhere else.
 export NXF_OPTS="-Djava.net.preferIPv6Addresses=true"
 
-nextflow run ../sarek \
-  -profile docker \
-  -c nextflow.config \
-  -params-file params/run.yaml \
-  -resume \
-  --input assets/samplesheet_pilot.csv \
-  --outdir results \
-  --intervals references/target_pad30.bed \
-  "$@"   # anything you add on the command line, e.g. -preview
+nextflow run nf-core/sarek \
+    -r ${SAREK} \
+    -profile ${PROFILE} \
+    -c nextflow.config \
+    -work-dir ${WORKDIR} \
+    --input ${SAMPLESHEET} \
+    --outdir ${OUTDIR} \
+    --genome GATK.GRCh38 \
+    --wes true \
+    --intervals ${INTERVALS} \
+    --tools mutect2 \
+    --nucleotides_per_second 1000 \
+    --markduplicates_pixel_distance 2500 \
+    --trim_fastq true \
+    --trim_nextseq true \
+    --save_reference true \
+    -resume \
+    "$@"

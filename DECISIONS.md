@@ -10,30 +10,24 @@ repository.
 design ingested CeGaT's delivered call set. It was replaced by calling from FASTQ so the pipeline
 owns its own evidence and can be re-run, re-tuned and audited.
 
-**Wrap stock nf-core/sarek 3.9.0; do not fork or reimplement it.** The clone lives beside this repo
-at `../sarek`, unmodified, pinned to tag 3.9.0. We supply parameters, not code.
+**Run stock nf-core/sarek 3.9.0 from the hub; do not fork or reimplement it.**
+`nextflow run nf-core/sarek -r 3.9.0` resolves and caches it; there is no local clone to keep in
+sync. We supply parameters, not code.
 
-**Three scripts: two Python utilities and a launch template** (2026-08-03, reversing 2026-07-30).
-The repository had grown to 2,606 lines of scripts, validators and tests; on 2026-07-30 all of it
-was deleted, and the README asked the operator to paste a `bedtools` pipeline and a `nextflow`
-invocation by hand. That traded one failure mode for another: nothing to read, but a lot to type
-correctly. `scripts/` came back — and then changed shape again the same day, once the question was
-settled by looking at what the neighbouring pipelines actually do rather than by argument.
+**Two files: one Python utility and a launch template** (2026-08-03). The repository had grown to
+2,606 lines of scripts, validators and tests; on 2026-07-30 all of it was deleted. `scripts/` came
+back the same day, then shrank twice more as sarek turned out to already do the work.
 
-`scripts/setup.py` and `scripts/build_bed.py` are Python with `argparse`, because nf-core/
-epitopeprediction 3.1.0 and nf-core/mhcquant 3.2.0 contain no shell utilities at all: all nine
-`bin/` scripts across the two are Python with a module docstring, named functions and `help=` on
-every flag, so `--help` is the documentation. `scripts/run.sh` is a literal editable template,
-because AG-Walz's own fastq-to-fasta launches sarek exactly that way — `nextflow run` with one flag
-per line and real paths inline. The measure is total lines a reader must get through: the bash
-version was 312 lines at 79 % comment, this is 205 at 30 %.
+`scripts/build_bed.py` is Python with `argparse`, following the house style of the neighbouring
+pipelines: nf-core/epitopeprediction 3.1.0 and nf-core/mhcquant 3.2.0 contain no shell utilities at
+all — all nine `bin/` scripts across the two are Python with a module docstring, named functions and
+`help=` on every flag, so `--help` is the documentation. `scripts/run.sh` is a literal editable
+template, because AG-Walz's own fastq-to-fasta launches sarek exactly that way.
 
-Every path is an argument, with no defaults, so a wrong path is a usage error rather than a silent
-fallback to another cohort's data. The single hardcoded value is sarek's tag `3.9.0`: which files
-to use is the operator's choice, which sarek this is validated against is not.
-
-What did NOT come back: the validators, the tests and the five guarantees below.
-`build_bed.py` makes the intervals contract true by construction instead of asserting it.
+It is the only script because it is the only thing sarek will not do: sarek builds `.fai`, `.dict`,
+the germline `.tbi` and the BWA index itself, and `--genome` fetches the rest — but nothing in it
+turns capture-kit BEDs into a contig-ordered, 3-column target. `build_bed.py` makes that contract
+true by construction rather than asserting it. The validators and tests did not come back.
 
 **Five guarantees were given up with that code**, each of which fails silently or expensively — the
 samplesheet cardinality rules, the intervals contract, the germline-resource check, the container
@@ -48,11 +42,20 @@ disk check, and the VCF output contract. The README lists each as an optional on
 **Paired only. No tumour-only mode.** A patient without a normal is not a fallback case — sarek will
 run it silently and produce a call set that is largely germline.
 
-**GRCh38 (GATK bundle), materialised locally, with `--igenomes_ignore true`.** Every reference path
-is explicit. The schema default `--genome GATK.GRCh38` is refused because it silently injects a
-1000g panel-of-normals, a `.64.alt` file and WGS intervals, each announced only as a `log.warn`.
+**GRCh38 via `--genome GATK.GRCh38`** (2026-08-03, reversing the local-references decision). Every
+reference — FASTA, `.fai`, `.dict`, the gnomAD germline resource, the BWA index, dbSNP and known
+indels — comes from `s3://ngi-igenomes/igenomes/`, staged per work directory. This deletes the
+whole reference-acquisition step.
 
-**BQSR off**, which is also why no dbSNP or known-indels resource is needed.
+It was previously refused, because igenomes also injects a 1000g panel-of-normals
+(`conf/igenomes.config:76`), a `.64.alt` file, and WGS intervals, each announced only as a
+`log.warn`. That objection was about *comparability with the vendor's calls*, and the goal changed:
+we now want an independent call set to check whether their run was done correctly, not a
+reproduction of it. A PoN and BQSR make the call set better evidence, not worse. `--intervals`
+still overrides the WGS intervals.
+
+**BQSR on** (2026-08-03, reversing "BQSR off"). It was off because no dbSNP or known-indels
+resource was materialised locally; igenomes supplies both, so the reason is gone.
 
 **No annotation, no VEP, no normalisation.** The VCF is emitted as FilterMutectCalls leaves it;
 annotation happens downstream in nf-core/epitopeprediction.
@@ -65,10 +68,13 @@ cross-check). At the default padding it is 214,494 regions / 49,633,134 bp, md5
 `69ed88c5131c8613efe5e20e66954e74`.
 
 **Padding is a required argument, `build_bed.py --padding`, and this cohort uses 30 bp** — the
-sequencing vendor's own DRAGEN setting.
-Their coverage metrics match our padded territory to 0.07 %, so changing it ends comparability with
-their calls. The output filename carries the value, so the BED and `--intervals` cannot drift
-apart silently.
+sequencing vendor's own DRAGEN setting, chosen so our padded territory matched the 49,599,660 bp
+they reported, to 0.07 %. **That was a comparability argument and it no longer holds** (2026-08-03):
+the goal is an independent call set, so 30 bp is inherited rather than derived. sarek itself has no
+padding parameter and passes no `--interval-padding`, so its effective default is 0, and
+fastq-to-fasta never used a padded target at all. Deriving a value from this dataset's own
+coverage fall-off is an open question — see the README. The output filename carries the value, so
+the BED and `--intervals` cannot drift apart silently.
 
 **Rows must be in the reference's contig order, and the file must be exactly three columns.** Both
 are correctness requirements, not style: name-ordered rows kill the run 30 minutes in, and a fourth
@@ -98,26 +104,15 @@ users type `status` directly; a CLI operator is assumed to be trusted.
 **Nextflow is pinned to 25.10.x.** sarek 3.9.0 requires `>=25.10.2`, but the current installer ships
 26.04.6, under which the pinned invocation aborts on a valid paired samplesheet.
 
-**Tuned parameters live in `params/run.yaml`; the three per-cohort paths live on the command line**
-(2026-08-03). A truncated paste of the old flag list once produced an orphaned run, and a file
-cannot be half-pasted — but `--input`, `--outdir` and `--intervals` are what actually change between
-cohorts, so they belong where you can see them. The rest stay in the file because bash cannot carry
-a comment inside a backslash-continued command: moving them inline would delete the rationale for
-the four settings that fail silently. All three peer nf-core pipelines document `-params-file` for
-exactly this, and warn against putting parameters in `-c`.
+**Every parameter is inline in `scripts/run.sh`; there is no params file** (2026-08-03, reversing
+the `-params-file` decision taken the same day). Once `--genome GATK.GRCh38` supplied the six
+reference paths and the QC suppression was dropped, only five tuned settings were left, and five
+flags do not need a file. The rationale that the YAML's comments used to carry now lives in
+DECISIONS.md and the README, which is where a reader looks anyway.
 
-**bwa-mem1 today; bwa-mem2 at the next fresh cohort** (2026-07-31). The published BWA-MEM1 index is
-byte-identical to what sarek builds, so it is a download rather than a 1h15m build. `setup.py`
-downloads it and `params/run.yaml` points at it as of 2026-08-03: adopting it invalidates cached
-alignments, and the pilot's cache was already lost to an unrelated change, so this was the cheap
-moment. bwa-mem2 is roughly twice as fast but has no public index — a cohort boundary decision.
-
-**Reference downloads are checksum-pinned** (2026-08-03). `assets/references.txt` carries a third
-column holding the md5 Google Cloud Storage publishes for each object, and `setup.py` passes it to
-`aria2c --checksum`. The column is optional, so a mirror that publishes no digest still works. This
-closes a real hole rather than a theoretical one: `--continue` treats a file of the right SIZE as
-finished, so a reference corrupted in place is never re-fetched — measured, by corrupting 8 bytes
-without changing the length and watching aria2c exit 0 at 0 B/s. With the digest it re-downloads.
+**bwa-mem1, from igenomes** (2026-08-03). `--genome GATK.GRCh38` points `bwa` at a prebuilt index
+directory, so the 1h14m50s `BWAMEM1_INDEX` build does not happen. Note that index includes a
+`.64.alt` file, which makes BWA-MEM alt-aware — a different alignment from the pilot's.
 
 **The run sets `NXF_OPTS=-Djava.net.preferIPv6Addresses=true`** (2026-08-03). sarek's own config
 includes the nf-core institutional config over https; the JVM prefers IPv4, and on an IPv6-only
