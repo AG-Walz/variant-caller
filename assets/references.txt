@@ -1,0 +1,32 @@
+# Reference files for scripts/setup.sh — edit freely, this is data, not code.
+#
+# One file per line: the URL to fetch, then where to put it relative to the destination
+# directory you pass to setup.sh. Blank lines and #-comments are ignored. Anything aria2c
+# can fetch works, so a local mirror or an internal http server is a drop-in replacement.
+#
+# These are the GATK GRCh38 bundle and GATK's somatic best-practice resources. They are the
+# build the pipeline is validated against: swapping in a different genome build means the
+# target BED, the germline resource and the vendor's own calls all have to move with it.
+
+# --- the genome: the sequence, its index, and its sequence dictionary -------------------
+https://storage.googleapis.com/gcp-public-data--broad-references/hg38/v0/Homo_sapiens_assembly38.fasta	Homo_sapiens_assembly38.fasta
+https://storage.googleapis.com/gcp-public-data--broad-references/hg38/v0/Homo_sapiens_assembly38.fasta.fai	Homo_sapiens_assembly38.fasta.fai
+https://storage.googleapis.com/gcp-public-data--broad-references/hg38/v0/Homo_sapiens_assembly38.dict	Homo_sapiens_assembly38.dict
+
+# --- the germline resource: population allele frequencies, plus its tabix index ---------
+# Mutect2 reads it to tell a common germline variant from a somatic one, and
+# CalculateContamination reads it to estimate cross-sample contamination. Without it sarek
+# publishes the UNFILTERED VCF without complaining.
+https://storage.googleapis.com/gatk-best-practices/somatic-hg38/af-only-gnomad.hg38.vcf.gz	af-only-gnomad.hg38.vcf.gz
+https://storage.googleapis.com/gatk-best-practices/somatic-hg38/af-only-gnomad.hg38.vcf.gz.tbi	af-only-gnomad.hg38.vcf.gz.tbi
+
+# --- the BWA-MEM1 index: 5.3 GB, saves a measured 1h14m50s build ------------------------
+# Upstream these are named .fasta.64.* ("64" is bwa's 64-bit index format), but bwa finds
+# its index by looking for the .amb/.ann/... siblings of a common prefix, so they are
+# renamed on arrival to match the FASTA's basename. Point params/pilot.yaml `bwa:` at the
+# bwa/ directory these land in.
+https://storage.googleapis.com/gcp-public-data--broad-references/hg38/v0/Homo_sapiens_assembly38.fasta.64.amb	bwa/Homo_sapiens_assembly38.amb
+https://storage.googleapis.com/gcp-public-data--broad-references/hg38/v0/Homo_sapiens_assembly38.fasta.64.ann	bwa/Homo_sapiens_assembly38.ann
+https://storage.googleapis.com/gcp-public-data--broad-references/hg38/v0/Homo_sapiens_assembly38.fasta.64.bwt	bwa/Homo_sapiens_assembly38.bwt
+https://storage.googleapis.com/gcp-public-data--broad-references/hg38/v0/Homo_sapiens_assembly38.fasta.64.pac	bwa/Homo_sapiens_assembly38.pac
+https://storage.googleapis.com/gcp-public-data--broad-references/hg38/v0/Homo_sapiens_assembly38.fasta.64.sa	bwa/Homo_sapiens_assembly38.sa

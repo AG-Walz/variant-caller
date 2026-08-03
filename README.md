@@ -7,10 +7,16 @@ Three scripts and a params file. `params/pilot.yaml` holds every sarek setting w
 for each; `scripts/` holds the three commands you actually type.
 
 ```
-scripts/setup.sh      once per box   toolchain check + the GRCh38 bundle + the BWA index
+scripts/setup.sh      once per box   toolchain check, the sarek clone, the reference files
 scripts/build_bed.sh  once per kit   N capture-kit BEDs -> one canonical padded target BED
-scripts/run.sh        every run      the pinned `nextflow run ../sarek`
+scripts/run.sh        every run      the pinned `nextflow run`
 ```
+
+Every path is an argument — which reference, which kit files, which padding, where things
+land. Run any of them with no arguments to see what it wants. The only value hardcoded
+anywhere is sarek's tag, `3.9.0`, because that is what the pipeline is validated against.
+Which reference files to fetch is data too, in `assets/references.txt`: edit it, or pass your
+own list, to use a different build or an internal mirror.
 
 ## Requirements
 
@@ -24,13 +30,31 @@ export PATH=~/envs/vc/bin:$PATH
 
 ## The whole thing, in order
 
+Run these from the repo root — `params/pilot.yaml` names its paths relative to wherever you
+launch, and nothing here quietly changes directory on you.
+
 ```bash
-./scripts/setup.sh                                  # ~30 min: clones ../sarek, downloads ~6.5 GB
-./scripts/build_bed.sh                              # ~1 min: the two Twist kit BEDs, PAD=30
+# ~30 min: clone sarek 3.9.0 and download the 11.8 GB of GRCh38 reference data listed in the file
+./scripts/setup.sh assets/references.txt references ../sarek
+
+# ~1 min: this cohort's two Twist kit files, padded 30 bp, into the name params/pilot.yaml expects
+T=https://www.twistbioscience.com/content/dam/twistbioscience/resources
+./scripts/build_bed.sh references/Homo_sapiens_assembly38.fasta.fai 30 references/target_pad30.bed \
+    $T/2019-09/Twist_Exome_RefSeq_targets_hg38.bed \
+    $T/2020-04/Twist_MitoPanel_chrM_all_hg38_target.bed
+
+# your samples
 cp assets/samplesheet_template.csv assets/samplesheet_pilot.csv && $EDITOR $_
-./scripts/run.sh -preview                           # ~40 s: validates every path, runs nothing
-./scripts/run.sh                                    # the run itself
+
+# ~40 s: validate every parameter and path, launching nothing
+./scripts/run.sh ../sarek params/pilot.yaml nextflow.config -preview
+
+# the run itself
+./scripts/run.sh ../sarek params/pilot.yaml nextflow.config
 ```
+
+Already have the kit BEDs on disk? Pass paths instead of URLs — `build_bed.sh` takes either,
+in any mix, in any number.
 
 → `results/variant_calling/mutect2/<T>_vs_<N>/<T>_vs_<N>.mutect2.filtered.vcf.gz`
 
@@ -43,7 +67,8 @@ the rest is trimming, alignment and duplicate marking. `scripts/run.sh` always p
 ```bash
 export PATH=/mnt/volume/bin/miniconda/bin:$PATH     # nextflow 25.10.4 + openjdk 21 live here
 cd /mnt/volume/nacho/variant-caller
-./scripts/run.sh -preview && ./scripts/run.sh
+./scripts/run.sh ../sarek params/pilot.yaml nextflow.config -preview \
+  && ./scripts/run.sh ../sarek params/pilot.yaml nextflow.config
 ```
 
 That is the whole thing on that box: `setup.sh` and `build_bed.sh` have both already been
@@ -78,18 +103,19 @@ done
 
 ## A different capture kit or padding
 
-`build_bed.sh` takes any number of BED files or URLs and defaults to the two Twist files this
-kit was ordered from. `PAD` defaults to 30 bp, the sequencing vendor's own DRAGEN setting —
-their coverage metrics match our padded territory to 0.07 %, so changing it ends comparability
-with their calls.
-
 ```bash
-PAD=50 ./scripts/build_bed.sh kit_targets.bed https://vendor/panel.bed
+./scripts/build_bed.sh references/Homo_sapiens_assembly38.fasta.fai 50 \
+    references/target_pad50.bed kit_targets.bed https://vendor/panel.bed
 ```
 
-The output filename carries the padding (`references/target_pad50.bed`); point `intervals:` in
-`params/pilot.yaml` at it. At `PAD=30` with the defaults: 214,494 regions / 49,633,134 bp, md5
-`69ed88c5131c8613efe5e20e66954e74`.
+Put the padding in the output name and point `intervals:` in `params/pilot.yaml` at it — that
+way a BED built at one padding cannot be picked up by a params file expecting another.
+
+30 bp is this cohort's padding because it is the sequencing vendor's own DRAGEN setting, and
+their coverage metrics then match our padded territory to 0.07 % — changing it ends
+comparability with their calls. This cohort's two Twist files at 30 bp give 214,494 regions /
+49,633,134 bp, md5 `69ed88c5131c8613efe5e20e66954e74`; the script prints all three so you can
+compare against your last good build.
 
 ## Watch out
 
