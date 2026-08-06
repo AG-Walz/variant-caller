@@ -14,7 +14,7 @@ owns its own evidence and can be re-run, re-tuned and audited.
 `nextflow run nf-core/sarek -r 3.9.0` resolves and caches it; there is no local clone to keep in
 sync. We supply parameters, not code.
 
-**Two files: one Python utility and a launch template** (2026-08-03). The repository had grown to
+**Two files, both editable shell templates** (2026-08-03). The repository had grown to
 2,606 lines of scripts, validators and tests; on 2026-07-30 all of it was deleted. `scripts/` came
 back the same day, then shrank twice more as sarek turned out to already do the work.
 
@@ -39,7 +39,8 @@ load-bearing `-faidx` behind an implicit pandas property.
 
 **Five guarantees were given up with that code**, each of which fails silently or expensively — the
 samplesheet cardinality rules, the intervals contract, the germline-resource check, the container
-disk check, and the VCF output contract. The README lists each as an optional one-line check.
+disk check, and the VCF output contract. [docs/output.md](docs/output.md) records what is no longer
+checked, and the one-line commands that stand in for it.
 
 ## Calling
 
@@ -75,14 +76,14 @@ annotation happens downstream in nf-core/epitopeprediction.
 cross-check). At the default padding it is 214,494 regions / 49,633,134 bp, md5
 `69ed88c5131c8613efe5e20e66954e74`.
 
-**Padding is a required argument, `build_bed.py --padding`, and this cohort uses 30 bp** — the
+**Padding is a variable at the top of `build_bed.sh`, and this cohort uses 30 bp** — the
 sequencing vendor's own DRAGEN setting, chosen so our padded territory matched the 49,599,660 bp
 they reported, to 0.07 %. **That was a comparability argument and it no longer holds** (2026-08-03):
 the goal is an independent call set, so 30 bp is inherited rather than derived. sarek itself has no
 padding parameter and passes no `--interval-padding`, so its effective default is 0, and
 fastq-to-fasta never used a padded target at all. Deriving a value from this dataset's own
-coverage fall-off is an open question — see the README. The output filename carries the value, so
-the BED and `--intervals` cannot drift apart silently.
+coverage fall-off is an open question — see [docs/target-bed.md](docs/target-bed.md). The output
+filename carries the value, so the BED and `--intervals` cannot drift apart silently.
 
 **Rows must be in the reference's contig order, and the file must be exactly three columns.** Both
 are correctness requirements, not style: name-ordered rows kill the run 30 minutes in, and a fourth
@@ -115,8 +116,8 @@ users type `status` directly; a CLI operator is assumed to be trusted.
 **Every parameter is inline in `scripts/run.sh`; there is no params file** (2026-08-03, reversing
 the `-params-file` decision taken the same day). Once `--genome GATK.GRCh38` supplied the six
 reference paths and the QC suppression was dropped, only five tuned settings were left, and five
-flags do not need a file. The rationale that the YAML's comments used to carry now lives in
-DECISIONS.md and the README, which is where a reader looks anyway.
+flags do not need a file. The rationale that the YAML's comments used to carry now lives in this
+file and in [docs/parameters.md](docs/parameters.md), which is where a reader looks anyway.
 
 **bwa-mem1, from igenomes** (2026-08-03). `--genome GATK.GRCh38` points `bwa` at a prebuilt index
 directory, so the 1h14m50s `BWAMEM1_INDEX` build does not happen. Note that index includes a
