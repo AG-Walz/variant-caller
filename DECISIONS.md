@@ -40,7 +40,19 @@ load-bearing `-faidx` behind an implicit pandas property.
 **Five guarantees were given up with that code**, each of which fails silently or expensively — the
 samplesheet cardinality rules, the intervals contract, the germline-resource check, the container
 disk check, and the VCF output contract. [docs/output.md](docs/output.md) records what is no longer
-checked, and the one-line commands that stand in for it.
+checked and the one-line commands that stand in for it; the two that bite before a run finishes —
+the cardinality rules and the container disk — are in
+[docs/usage.md](docs/usage.md#failure-modes-that-cost-real-time) instead, where a reader meets them
+in time.
+
+**The repository is written for any kit and any cohort; the cohort lives outside it** (2026-08-06).
+The docs previously named this project's sequencing vendor, its two Twist kit files, its pilot
+patient and the specific box it ran on. All of it moved out: `build_bed.sh` takes `kit1.bed
+kit2.bed`, the samplesheet is `assets/samplesheet.csv` rather than `_pilot`, and the padding table
+is presented as a starting point rather than as this cohort's setting. The measurements stay
+wherever they are load-bearing — they are evidence, not decoration — but the reader is no longer
+assumed to be us. This file is the exception: it keeps the vendor-specific reasoning, because a
+decision is not intelligible without the situation that forced it.
 
 ## Calling
 
@@ -163,6 +175,13 @@ file and in [docs/parameters.md](docs/parameters.md), which is where a reader lo
 directory, so the 1h14m50s `BWAMEM1_INDEX` build does not happen. Note that index includes a
 `.64.alt` file, which makes BWA-MEM alt-aware — a different alignment from the pilot's.
 
+**`nextflow.config` ships sized for the box it was measured on, and says so** (2026-08-06). Its
+`executor { cpus = 26; memory = '480 GB' }` is a 28-core, 500 GB machine; on anything smaller the
+sum across running tasks over-commits and the run dies on OOM. Shipping neutral defaults instead
+would have made every number in it unmeasured, so the README and
+[docs/parameters.md](docs/parameters.md) both carry the instruction to lower it rather than the
+config carrying a guess.
+
 **The run sets `NXF_OPTS=-Djava.net.preferIPv6Addresses=true`** (2026-08-03). sarek's own config
 includes the nf-core institutional config over https; the JVM prefers IPv4, and on an IPv6-only
 host that include fails and takes the run with it before any parameter is read. `NXF_OFFLINE=true`
@@ -178,5 +197,6 @@ adopted, pass `--pon` explicitly to override the igenomes default.
 
 **Concordance against the vendor's call set has never been measured.** It is the question this
 project exists to answer and nothing here has done it yet. The pilot's own calls are not the right
-basis for it: they were produced without a PoN and with BQSR off, both of which are now on — see
-[docs/output.md](docs/output.md) for its numbers and why they should not be expected to reproduce.
+basis for it either: 10,642 records and 683 PASS, produced without a panel of normals and with BQSR
+off, both of which are now on. Neither number should be expected to reproduce, which is why they
+are recorded here rather than in the docs as if they were a reference result.

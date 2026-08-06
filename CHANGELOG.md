@@ -18,15 +18,17 @@ Why it is shaped this way: [DECISIONS.md](DECISIONS.md).
 
 - `scripts/build_bed.sh` — capture-kit BEDs → one target BED for `--intervals`, the only input
   sarek will not build for you. `cat | bedtools sort -faidx | merge | slop -g | merge`, padding
-  set at the top. This cohort's two Twist files at 30 bp give 214,494 regions / 49,633,134 bp,
-  md5 `69ed88c5131c8613efe5e20e66954e74`. See [docs/target-bed.md](docs/target-bed.md).
+  set at the top. A Twist exome + mito kit at 30 bp gives 214,494 regions / 49,633,134 bp, md5
+  `69ed88c5131c8613efe5e20e66954e74`. See [docs/target-bed.md](docs/target-bed.md).
 - `scripts/run.sh` — the pinned `nextflow run nf-core/sarek -r 3.9.0`, every parameter inline.
   Always passes `-resume`; `-preview` validates paths in ~40 s without launching. See
   [docs/parameters.md](docs/parameters.md).
 - `nextflow.config` — resource overrides only, no params and no container engine, so the pipeline
   stays provably stock. Every number is a measurement: MarkDuplicates 60 GB against a 42.5 GB
-  observed peak, Mutect2 4 cpus as the concurrency knob for 83 shards under a 26-cpu cap.
-- `assets/samplesheet_template.csv` — two-row tumour/normal example.
+  observed peak, Mutect2 4 cpus as the concurrency knob for 83 shards under a 26-cpu cap. **It
+  ships sized for a 28-core, 500 GB box; lower `executor { cpus; memory }` to match yours.**
+- `assets/samplesheet_template.csv` — two-row tumour/normal example. Copy it to
+  `assets/samplesheet.csv` and edit.
 - `DECISIONS.md` — the choices behind the pipeline, each with the reason it was made.
 - `docs/parameters.md` — every flag in `run.sh`, why it is set, and what is deliberately not set.
 - `docs/target-bed.md` — building the target, choosing the padding, and why `cat` beats every
@@ -43,6 +45,12 @@ Why it is shaped this way: [DECISIONS.md](DECISIONS.md).
 - **References are not downloaded.** `--genome GATK.GRCh38` fetches FASTA, `.fai`, `.dict`, the
   gnomAD germline resource, the BWA index, dbSNP and known indels from `s3://ngi-igenomes/igenomes/`
   on first run. This also brings a 1000g panel of normals and BQSR, both wanted here.
+- **Everything outside `DECISIONS.md` is written for any kit and any cohort.** The docs named this
+  project's sequencing vendor, its two Twist kit filenames, its pilot patient and the one box it
+  ran on; `build_bed.sh` now takes `kit1.bed kit2.bed`, `run.sh` points at `assets/samplesheet.csv`,
+  and the padding table reads as a starting point rather than as this cohort's setting. Measurements
+  stay where they carry weight. `DECISIONS.md` keeps the vendor-specific reasoning, since a decision
+  is not intelligible without the situation that forced it.
 - `README.md` rewritten to prerequisites and three steps; the detail moved to `docs/`.
 - `docs/usage.md` rewritten around the real samplesheet, plus the failure modes that cost real
   time — a swapped `status`, a patient with no normal running tumour-only and completing, a

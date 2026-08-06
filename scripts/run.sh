@@ -4,7 +4,7 @@
 SAREK=3.9.0
 PROFILE=docker
 WORKDIR=work
-SAMPLESHEET=assets/samplesheet_pilot.csv
+SAMPLESHEET=assets/samplesheet.csv
 OUTDIR=results
 INTERVALS=references/target_pad30.bed
 
