@@ -1,59 +1,53 @@
 # Output
 
-Everything is written under `--outdir`.
-
 ```
 results/
-├── preprocessing/     trimmed reads, aligned CRAMs
-├── reports/           QC per sample, plus one combined MultiQC report
-├── variant_calling/   the somatic VCFs
-├── epitopeprediction/ samplesheet.csv  ← hand this to the next pipeline
-└── pipeline_info/     software versions, execution trace, run report
+├── variant_calling/mutect2/<T>_vs_<N>/
+│   ├── <T>_vs_<N>.mutect2.filtered.vcf.gz     ← the one you want
+│   └── <T>_vs_<N>.mutect2.vcf.gz              ← unfiltered; almost certainly not
+├── preprocessing/recalibrated/<sample>/       CRAMs
+├── reference/                                 the built index (--save_reference)
+└── multiqc/, reports/                         QC
 ```
 
-## The two files that matter
+`filtered` is the `FilterMutectCalls` output. A file **without** `_vs_` in its name means that
+patient ran tumour-only — see [usage.md](usage.md).
 
-**`variant_calling/<patient>/<patient>.somatic.vcf.gz`** — the somatic mutations, one file
-per patient. Emitted raw: not normalised, not annotated, with tumour and comparison columns
-both intact so the downstream pipeline knows which is which.
+## Checking it
 
-**`epitopeprediction/samplesheet.csv`** — points at those VCFs and carries each patient's
-HLA type. Feed it directly to nf-core/epitopeprediction.
+```bash
+# the target BED is canonical iff unchanged by its own recipe
+FAI=references/Homo_sapiens_assembly38.fasta.fai
+BED=references/target_pad30.bed
+bedtools sort -faidx $FAI -i $BED | bedtools merge -i - | bedtools slop -i - -g $FAI -b 0 | cmp - $BED
 
-## Checking the run is trustworthy
+# two genotype columns, named <patient>_<sample>
+bcftools query -l results/variant_calling/mutect2/*/*.vcf.gz
 
-Open `reports/multiqc/multiqc_report.html` first. An empty or very short mutation list has
-two very different explanations — a genuinely clean tumour, or a failed experiment — and
-only the QC report tells them apart.
+# how many calls actually PASS
+bcftools query -f '%FILTER\n' results/variant_calling/mutect2/*/*.vcf.gz | sort | uniq -c | sort -rn
 
-**On-target coverage.** Exome capture only reads selected regions. If coverage over the
-target regions is low, mutations were missed. Compare against what your kit and depth
-should give; a tumour typically needs deeper coverage than a normal sample, because a
-mutation may be present in only a minority of cells.
+# coverage over the target — the point of the exercise
+cat results/reports/mosdepth/*/*.mosdepth.summary.txt
+```
 
-**Duplicate rate.** A high proportion of duplicate reads means the library had little
-unique material. The effective coverage is lower than the raw number suggests.
+sarek writes the read group as `SM:<patient>_<sample>`, so the VCF's genotype columns are
+patient-prefixed while the **file** is named from the bare sample ids. Comparing the file name to
+the column names fails a perfectly good run.
 
-**Capture efficiency.** The fraction of reads landing on target. Low values mean sequencing
-was spent outside the regions of interest.
+## What nothing checks
 
-**Contamination estimate.** How much healthy tissue is mixed into the tumour sample. High
-values make low-frequency mutations harder to detect and are worth knowing before
-interpreting a short result list.
+Each of these fails silently or expensively. They were enforced by 2,606 lines of code that was
+deleted on 2026-07-30, and the reasons for deleting it still hold — but know they are gone:
 
-## Decisions recorded in the log
+- **Samplesheet cardinality.** A missing normal runs tumour-only and completes. `status: 1.00`
+  parses as a BigDecimal; an absent status column defaults every row to 0.
+- **A swapped tumour/normal.** Not detectable by any check here, in sarek, or in the output.
+- **The intervals contract.** `build_bed.sh` makes it true by construction rather than asserting
+  it. A zero-length interval would still get through — GATK rejects those loudly, so it is not
+  silent.
+- **Free space on `/var/lib/containerd`.** Two runs died there.
 
-Every automatic choice appears in the run log and the report, never silently:
-
-- which sample was selected for comparison, and why
-- whether a patient fell back to tumour-only mode
-- whether `tumour_adjacent` tissue had to be used — always accompanied by a warning
-- which panel of normals applied to each kit
-
-If a result looks surprising, read these before re-running anything.
-
-## Provenance
-
-`pipeline_info/` records the exact version of every tool, the parameters used, and a full
-execution trace. Keep this directory — it is what makes a result reproducible months later,
-and what you will need if a finding is ever questioned.
+The pilot's own numbers, for comparison: 10,642 records, 683 PASS, produced without a panel of
+normals and with BQSR off. The current configuration has both on, so neither number should be
+expected to reproduce.

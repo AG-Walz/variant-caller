@@ -54,3 +54,9 @@ venv/
 .DS_Store
 *.swp
 *~
+
+# local-only notes, deliberately not published
+CLAUDE.md
+
+# stray build artefacts
+*.deb

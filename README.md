@@ -1,49 +1,82 @@
-# AG-Walz/variant-caller
+# variant-caller
 
-A lean, nf-core-style Nextflow pipeline for **somatic variant calling** from targeted
-and whole-exome sequencing.
+Tumour/normal FASTQ → one paired somatic VCF per patient, by running stock
+[nf-core/sarek](https://github.com/nf-core/sarek) 3.9.0.
 
-> **Status: design stage.** This repository contains documentation only — no runnable
-> pipeline code yet. Interfaces described here may change.
+**Purpose:** an independent call set, to check whether the sequencing vendor's own run was done
+correctly. Not a reproduction of their calls — the reference they delivered was the wrong genome
+build, which is what prompted this.
 
-## What it does
-
-Takes sequencing reads from a tumour (and, where available, a tumour-free sample from
-the same patient) and produces a **raw somatic VCF**: the mutations the tumour acquired,
-separated from those the patient was born with.
+Two scripts, both editable templates in the style of
+[fastq-to-fasta](https://github.com/AG-Walz/fastq-to-fasta)'s example scripts: change the
+variables at the top and run.
 
 ```
-FASTQ ┐
-BAM   ┴→ Clean → Align → Tidy → Call → VCF ┐
-                                           ├→ epitopeprediction → mhcquant
-VCF, peptides, FASTA, MS ──────────────────┘
+scripts/build_bed.sh  once per kit   your capture-kit BEDs -> one target BED
+scripts/run.sh        every run      the nextflow command
 ```
 
-## What it does not do
+## Requirements
 
-The VCF is emitted **raw** — not normalised, not annotated, not filtered by consequence.
-[nf-core/epitopeprediction](https://github.com/nf-core/epitopeprediction) performs all of
-that with its own tool versions, and duplicating it here would eventually produce two
-silently disagreeing answers.
+Docker, Java 17+, `bedtools`, and **Nextflow 25.10.x — not 26.x**, which aborts on a valid
+paired samplesheet.
 
-If you already have a VCF, peptides, a protein FASTA, or mass-spectrometry results, this
-pipeline is not in your path — go straight to epitopeprediction.
+```bash
+mamba create -y -p ~/envs/vc -c conda-forge -c bioconda nextflow=25.10.4 openjdk=17 bedtools
+export PATH=~/envs/vc/bin:$PATH
+```
+
+There is no reference download step. `--genome GATK.GRCh38` makes sarek fetch the GRCh38 bundle
+— FASTA, `.fai`, `.dict`, the gnomAD germline resource, the BWA index, dbSNP and known indels —
+from `s3://ngi-igenomes/igenomes/` on first run.
+
+## Run it
+
+**1. Build the target BED** — the one input sarek will not build for you.
+→ [docs/target-bed.md](docs/target-bed.md)
+
+```bash
+mkdir -p references && cd references
+curl -O https://storage.googleapis.com/gcp-public-data--broad-references/hg38/v0/Homo_sapiens_assembly38.fasta.fai
+curl -O <your capture kit's target BED>          # one or more, from the kit vendor
+cd ..
+$EDITOR scripts/build_bed.sh                     # set BEDS, FAI, PADDING, OUTPUT
+./scripts/build_bed.sh                           # prints regions and total bp
+```
+
+**2. Write the samplesheet.** Absolute paths; `status` 1 = tumour, 0 = normal; exactly one normal
+per patient. → [docs/usage.md](docs/usage.md#the-samplesheet)
+
+```bash
+cp assets/samplesheet_template.csv assets/samplesheet_pilot.csv
+$EDITOR assets/samplesheet_pilot.csv
+```
+
+**3. Point the run at both, and go.** → [docs/parameters.md](docs/parameters.md)
+
+```bash
+$EDITOR scripts/run.sh                           # SAMPLESHEET, INTERVALS, OUTDIR, PROFILE
+./scripts/run.sh -preview                        # ~40 s: validates every path, runs nothing
+./scripts/run.sh
+```
+
+→ `results/variant_calling/mutect2/<T>_vs_<N>/<T>_vs_<N>.mutect2.filtered.vcf.gz`
+→ [docs/output.md](docs/output.md)
+
+Roughly 17 h for one tumour/normal pair on 28 cores. `run.sh` always passes `-resume`, so an
+interrupted run continues where it stopped.
 
 ## Documentation
 
 | | |
 |---|---|
-| [Introduction](docs/introduction.md) | What somatic calling is and why the steps exist |
-| [Inputs](docs/inputs.md) | Samplesheet, sample labels, reference data |
-| [Usage](docs/usage.md) | Running the pipeline, parameters, profiles |
-| [Output](docs/output.md) | What you get and how to check it is trustworthy |
+| [docs/usage.md](docs/usage.md) | the samplesheet, the run box, and the failure modes that cost real time |
+| [docs/target-bed.md](docs/target-bed.md) | building the target, and how to choose the padding |
+| [docs/parameters.md](docs/parameters.md) | every flag in `run.sh`, why it is set, what is deliberately not |
+| [docs/output.md](docs/output.md) | what you get, and how to check it |
+| [DECISIONS.md](DECISIONS.md) | why the pipeline is shaped the way it is |
 
-## Credits
+## Scope
 
-Developed at [AG Walz](https://github.com/AG-Walz), Tübingen. Built on
-[nf-core](https://nf-co.re) modules and conventions, and indebted to
-[nf-core/sarek](https://github.com/nf-core/sarek).
-
-## Licence
-
-To be confirmed before first release.
+Paired somatic calling only: no tumour-only mode, no annotation, one caller. Annotation happens
+downstream in [nf-core/epitopeprediction](https://github.com/nf-core/epitopeprediction).
