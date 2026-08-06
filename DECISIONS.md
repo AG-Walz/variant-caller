@@ -170,9 +170,13 @@ skips the include but then fails schema validation, so it is not an alternative.
 
 ## Open
 
-**No panel of normals.** The pilot's calls were produced without one, and adding one changes which
-calls pass. Deliberately left open for the remaining patients rather than inherited from a plan
-written before the pilot ran. If adopted, pass `--pon` explicitly.
+**No cohort-specific panel of normals.** Note that calls are not unfiltered: igenomes supplies a
+1000g PoN and `modules/nf-core/gatk4/mutect2/main.nf:35` applies it automatically. What is not
+built is a panel from this cohort's own normals, which would change which calls pass. Left open
+for the remaining patients rather than inherited from a plan written before the pilot ran. If
+adopted, pass `--pon` explicitly to override the igenomes default.
 
-**No QC and no BQSR in the pilot**, and concordance against the vendor's call set has never been
-measured. All reversible, all decisions for the remaining patients rather than for the pilot.
+**Concordance against the vendor's call set has never been measured.** It is the question this
+project exists to answer and nothing here has done it yet. The pilot's own calls are not the right
+basis for it: they were produced without a PoN and with BQSR off, both of which are now on — see
+[docs/output.md](docs/output.md) for its numbers and why they should not be expected to reproduce.
