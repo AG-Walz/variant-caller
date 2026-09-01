@@ -60,3 +60,6 @@ CLAUDE.md
 
 # stray build artefacts
 *.deb
+
+# the decision record, kept locally and not published
+DECISIONS.md
