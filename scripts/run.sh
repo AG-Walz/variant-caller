@@ -6,7 +6,7 @@ PROFILE=docker                          # Nextflow profile to use (docker, singu
 WORKDIR=work                            # Nextflow work directory
 SAMPLESHEET=assets/samplesheet.csv      # Samples to analyze
 OUTDIR=results                          # Output directory
-INTERVALS=references/target_pad30.bed   # the OUTPUT of build_bed.sh
+INTERVALS=references/target_pad30.bed   # bed file (OUTPUT of build_bed.sh)
 
 # The JVM prefers IPv4; on an IPv6-only host sarek's https config include fails and the run
 # dies before reading a parameter. 
