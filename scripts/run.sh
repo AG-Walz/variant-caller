@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
 # Copy this file, edit the variables, run it. Add -preview to validate paths without running.
 
-SAREK=3.9.0
-PROFILE=docker
-WORKDIR=work
-SAMPLESHEET=assets/samplesheet_pilot.csv
-OUTDIR=results
-INTERVALS=references/target_pad30.bed
+SAREK=3.9.0                             # Sarek version
+PROFILE=docker                          # Nextflow profile to use (docker, singularity, conda, test, etc.)
+WORKDIR=work                            # Nextflow work directory
+SAMPLESHEET=assets/samplesheet.csv      # Samples to analyze
+OUTDIR=results                          # Output directory
+INTERVALS=references/target_pad30.bed   # bed file (OUTPUT of build_bed.sh)
 
 # The JVM prefers IPv4; on an IPv6-only host sarek's https config include fails and the run
-# dies before reading a parameter. Harmless everywhere else.
+# dies before reading a parameter. 
 export NXF_OPTS="-Djava.net.preferIPv6Addresses=true"
 
 nextflow run nf-core/sarek \

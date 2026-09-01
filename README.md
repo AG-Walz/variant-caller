@@ -1,82 +1,69 @@
 # variant-caller
 
-Tumour/normal FASTQ → one paired somatic VCF per patient, by running stock
-[nf-core/sarek](https://github.com/nf-core/sarek) 3.9.0.
-
-**Purpose:** an independent call set, to check whether the sequencing vendor's own run was done
-correctly. Not a reproduction of their calls — the reference they delivered was the wrong genome
-build, which is what prompted this.
-
-Two scripts, both editable templates in the style of
-[fastq-to-fasta](https://github.com/AG-Walz/fastq-to-fasta)'s example scripts: change the
-variables at the top and run.
-
-```
-scripts/build_bed.sh  once per kit   your capture-kit BEDs -> one target BED
-scripts/run.sh        every run      the nextflow command
-```
+Tumour/normal FASTQ in, one paired somatic VCF per patient, by running
+[nf-core/sarek](https://github.com/nf-core/sarek) 3.9.0 with Mutect2.
+There is no pipeline code here — sarek does the work.
 
 ## Requirements
 
-Docker, Java 17+, `bedtools`, and **Nextflow 25.10.x — not 26.x**, which aborts on a valid
-paired samplesheet.
+Docker, Java 17+, `curl`, `bedtools`, `bcftools`, and **Nextflow 25.10.x — not 26.x**, which aborts
+on a valid paired samplesheet. `get.nextflow.io` installs 26.x by default, so pin it:
 
 ```bash
-mamba create -y -p ~/envs/vc -c conda-forge -c bioconda nextflow=25.10.4 openjdk=17 bedtools
+mamba create -y -p ~/envs/vc -c conda-forge -c bioconda nextflow=25.10.4 openjdk=17 bedtools bcftools
 export PATH=~/envs/vc/bin:$PATH
 ```
 
-There is no reference download step. `--genome GATK.GRCh38` makes sarek fetch the GRCh38 bundle
-— FASTA, `.fai`, `.dict`, the gnomAD germline resource, the BWA index, dbSNP and known indels —
-from `s3://ngi-igenomes/igenomes/` on first run.
+sarek downloads the reference genome itself on the first run. You need **~60 GB free on
+`/var/lib/containerd`** — docker puts image layers there regardless of its `data-root` — and a few
+hundred GB where you launch.
+
+Then lower `executor { cpus; memory }` in `nextflow.config` to match your machine. It ships sized
+for a 28-core, 500 GB box, and a smaller one will over-commit and die.
 
 ## Run it
 
-**1. Build the target BED** — the one input sarek will not build for you.
-→ [docs/target-bed.md](docs/target-bed.md)
+Launch from the repo root — the paths in both scripts are relative to where you start.
+
+**1. Build the target BED**, once per capture kit. Download the reference index and every BED file
+your kit ships (many ship two, exome plus mito). Then open `scripts/build_bed.sh`, list them all in
+`BEDS`, set `FAI`, `PADDING` and `OUTPUT`, and run it.
 
 ```bash
-mkdir -p references && cd references
-curl -O https://storage.googleapis.com/gcp-public-data--broad-references/hg38/v0/Homo_sapiens_assembly38.fasta.fai
-curl -O <your capture kit's target BED>          # one or more, from the kit vendor
-cd ..
-$EDITOR scripts/build_bed.sh                     # set BEDS, FAI, PADDING, OUTPUT
-./scripts/build_bed.sh                           # prints regions and total bp
+mkdir -p references
+curl -fL -o references/Homo_sapiens_assembly38.fasta.fai \
+  https://storage.googleapis.com/gcp-public-data--broad-references/hg38/v0/Homo_sapiens_assembly38.fasta.fai
+curl -fL -o references/kit1.bed '<your capture kit target BED>'
+./scripts/build_bed.sh
 ```
 
-**2. Write the samplesheet.** Absolute paths; `status` 1 = tumour, 0 = normal; exactly one normal
-per patient. → [docs/usage.md](docs/usage.md#the-samplesheet)
+It prints a region count and a total in bases. That is the only signal it worked, because it does
+not stop on errors — a whole-exome kit at 30 bp lands near 200,000 regions and 45–55 Mb, so a few
+hundred regions means only part of your input was read.
+
+**2. Write the samplesheet.** Copy the template and edit it: one row per FASTQ pair per lane,
+absolute paths. **Nothing checks that you got the tumour/normal roles right** —
+see [docs/reference.md](docs/reference.md#the-samplesheet).
 
 ```bash
-cp assets/samplesheet_template.csv assets/samplesheet_pilot.csv
-$EDITOR assets/samplesheet_pilot.csv
+cp assets/samplesheet_template.csv assets/samplesheet.csv
 ```
 
-**3. Point the run at both, and go.** → [docs/parameters.md](docs/parameters.md)
+**3. Run.** Open `scripts/run.sh` and point `SAMPLESHEET`, `INTERVALS`, `OUTDIR` and `WORKDIR` at
+your files. `INTERVALS` is the `OUTPUT` that step 1 wrote.
 
 ```bash
-$EDITOR scripts/run.sh                           # SAMPLESHEET, INTERVALS, OUTDIR, PROFILE
-./scripts/run.sh -preview                        # ~40 s: validates every path, runs nothing
+./scripts/run.sh -preview   # checks that every path exists; run this first
 ./scripts/run.sh
 ```
 
-→ `results/variant_calling/mutect2/<T>_vs_<N>/<T>_vs_<N>.mutect2.filtered.vcf.gz`
-→ [docs/output.md](docs/output.md)
+`-preview` does not check the samplesheet's roles or the BED's contig order. Nothing does.
 
-Roughly 17 h for one tumour/normal pair on 28 cores. `run.sh` always passes `-resume`, so an
-interrupted run continues where it stopped.
+Expect roughly 17 hours per tumour/normal pair on a 28-core machine. `-resume` is always on, so an
+interrupted run picks up where it stopped — provided you relaunch from the same directory.
 
-## Documentation
+Your VCF: `results/variant_calling/mutect2/<T>_vs_<N>/<T>_vs_<N>.mutect2.filtered.vcf.gz`
 
-| | |
-|---|---|
-| [docs/usage.md](docs/usage.md) | the samplesheet, the run box, and the failure modes that cost real time |
-| [docs/target-bed.md](docs/target-bed.md) | building the target, and how to choose the padding |
-| [docs/parameters.md](docs/parameters.md) | every flag in `run.sh`, why it is set, what is deliberately not |
-| [docs/output.md](docs/output.md) | what you get, and how to check it |
-| [DECISIONS.md](DECISIONS.md) | why the pipeline is shaped the way it is |
+Everything else: **[docs/reference.md](docs/reference.md)**.
 
-## Scope
-
-Paired somatic calling only: no tumour-only mode, no annotation, one caller. Annotation happens
-downstream in [nf-core/epitopeprediction](https://github.com/nf-core/epitopeprediction).
+Paired somatic calling only: no tumour-only mode, no annotation, one caller.
