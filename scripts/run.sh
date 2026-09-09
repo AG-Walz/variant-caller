@@ -22,7 +22,8 @@ nextflow run nf-core/sarek \
     --genome GATK.GRCh38 \
     --wes true \
     --intervals ${INTERVALS} \
-    --tools mutect2 \
+    --tools mutect2,strelka,manta \
+    --only_paired_variant_calling true \
     --nucleotides_per_second 1000 \
     --markduplicates_pixel_distance 2500 \
     --trim_fastq true \

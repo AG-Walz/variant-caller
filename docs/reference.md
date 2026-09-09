@@ -52,7 +52,8 @@ resource overrides only; parameters passed that way produce errors.
 | `--genome GATK.GRCh38` | fetches the genome, its indexes, dbSNP, known indels, the gnomAD germline resource and a prebuilt BWA index. It also turns on BQSR and applies a 1000g panel of normals, which changes which calls PASS |
 | `--wes true` | targeted rather than whole-genome models |
 | `--intervals` | your target BED |
-| `--tools mutect2` | the caller. **Pairing comes from the samplesheet's `status`, not from this flag** |
+| `--tools mutect2,strelka,manta` | the callers. Manta is there only to hand Strelka indel candidates. **Pairing comes from the samplesheet's `status`, not from this flag** |
+| `--only_paired_variant_calling true` | skips the germline call sarek would otherwise run on every normal with any tool that has a germline mode |
 | `--nucleotides_per_second 1000` | splits calling into dozens of parallel chunks. At sarek's default an exome stays in one chunk and Mutect2 runs single-threaded for the whole run |
 | `--markduplicates_pixel_distance 2500` | for patterned flowcells such as NovaSeq. On unpatterned optics set it back to 100 |
 | `--trim_fastq true`, `--trim_nextseq true` | adapter and poly-G trimming. Poly-G matters on two-colour chemistry, which reads "no signal" as G |
