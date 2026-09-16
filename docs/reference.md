@@ -108,7 +108,10 @@ Under `results/`:
 | `variant_calling/mutect2/<T>_vs_<N>/*.mutect2.vcf.gz` | unfiltered; almost certainly not |
 | `variant_calling/strelka/<T>_vs_<N>/*.somatic_{snvs,indels}.vcf.gz` | the second caller, in two files. Its columns are `NORMAL` and `TUMOR`, and it has no `GT` field |
 | `variant_calling/manta/<T>_vs_<N>/` | structural variants; only here to feed Strelka indel candidates |
-| `vs_reference/variant_calling/<tool>/<sample>/` | the single-sample calls, when a `_VS_REF` switch is on. `vs_reference/samplesheet.csv` is the sheet that produced them |
+| `vs_reference/variant_calling/mutect2/<sample>/*.mutect2.filtered.vcf.gz` | the sample alone, tumour-only mode, when a `_VS_REF` switch is on |
+| `vs_reference/variant_calling/strelka/<sample>/*.strelka.variants.vcf.gz` | the sample alone, germline mode. `*.genome.vcf.gz` next to it is the gVCF |
+| `vs_reference/variant_calling/manta/<sample>/*.{tumor,diploid}_sv.vcf.gz` | structural variants, both modes |
+| `vs_reference/samplesheet.csv` | the sheet `run.sh` derived for the second run. Read it if a `_VS_REF` output is missing |
 | `preprocessing/recalibrated/<sample>/` | CRAMs |
 | `multiqc/`, `reports/` | QC |
 | `reference/` | whatever sarek built rather than downloaded; often nearly empty |
@@ -137,6 +140,9 @@ Nothing validates the samplesheet, so the first three fail in silence.
 - **A patient with no `status=0` row runs tumour-only and finishes normally**, handing you a VCF
   full of inherited variants. The one visible symptom is a filename with no `_vs_` in it.
 - **`status: 1.00` is not `1`, and a missing status column makes every row a normal.**
+- **The second run only works from the directory the first was launched in.** sarek writes the
+  CRAM paths in `results/csv/recalibrated.csv` relative to that directory, and `run.sh` copies them
+  as they are. `-preview` never reaches the second run, since its inputs do not exist yet.
 - **`Unable to parse config file`, on a host with no IPv4.** sarek fetches part of its config over
   https and Java tries IPv4 first, so the run dies before reading a single parameter — even though
   `curl` works on the same machine. `run.sh` already exports the fix.
