@@ -47,12 +47,39 @@ P1,NA,0,normal_lib,L001,/abs/path/normal.1.fastq.gz,/abs/path/normal.2.fastq.gz
 docker. Leave `SAREK` at 3.9.0, the version this is validated against. `-c nextflow.config` carries
 resource overrides only; parameters passed that way produce errors.
 
+`TOOLS` feeds `--tools`. The three `*_VS_*` switches pick which VCFs you get:
+
+| switch | what runs | where sarek puts it |
+|---|---|---|
+| `TUMOUR_VS_NORMAL` | the paired somatic call, in the first sarek run | `variant_calling/<tool>/<T>_vs_<N>/` |
+| `TUMOUR_VS_REF` | each tumour alone against the reference | `vs_reference/variant_calling/<tool>/<T>/` |
+| `NORMAL_VS_REF` | each normal alone against the reference | `vs_reference/variant_calling/<tool>/<N>/` |
+
+The two `_VS_REF` switches trigger a second sarek run from the recalibrated CRAMs, so they cost
+calling time only. sarek decides how a sample is called from the samplesheet alone: a `status=1`
+sample with no normal under its patient goes to the tumour-only callers, a `status=0` sample to the
+germline callers. `run.sh` therefore lists every selected sample twice under two made-up patients,
+`<sample>_only` with status 1 and `<sample>_germline` with status 0, and lets each tool pick the
+row it can use:
+
+| | status 1 row | status 0 row |
+|---|---|---|
+| Mutect2 | tumour-only mode, with the panel of normals in place of a matched normal | nothing; Mutect2 has no germline mode |
+| Strelka | nothing; sarek has no tumour-only Strelka | `strelka/germline`, a germline model that misses low-fraction subclonal calls |
+| Manta | `tumor_sv` | `diploid_sv` |
+| HaplotypeCaller | nothing | the real GATK germline call |
+
+So "normal vs reference with Mutect2" is Mutect2 run on the normal as if it were a tumour. Its
+filters then tag ordinary heterozygous variants as `germline` and `panel_of_normals`, because that
+is what Mutect2 exists to remove. Read the unfiltered VCF, or add `haplotypecaller` to `TOOLS`.
+
 | flag | why |
 |---|---|
 | `--genome GATK.GRCh38` | fetches the genome, its indexes, dbSNP, known indels, the gnomAD germline resource and a prebuilt BWA index. It also turns on BQSR and applies a 1000g panel of normals, which changes which calls PASS |
 | `--wes true` | targeted rather than whole-genome models |
 | `--intervals` | your target BED |
-| `--tools mutect2` | the caller. **Pairing comes from the samplesheet's `status`, not from this flag** |
+| `--tools` | `TOOLS`. Manta is there only to hand Strelka indel candidates. **Pairing comes from the samplesheet's `status`, not from this flag** |
+| `--only_paired_variant_calling true` | keeps the germline call off the normal in the paired run, so every single-sample VCF comes from the second run and lives in one place |
 | `--nucleotides_per_second 1000` | splits calling into dozens of parallel chunks. At sarek's default an exome stays in one chunk and Mutect2 runs single-threaded for the whole run |
 | `--markduplicates_pixel_distance 2500` | for patterned flowcells such as NovaSeq. On unpatterned optics set it back to 100 |
 | `--trim_fastq true`, `--trim_nextseq true` | adapter and poly-G trimming. Poly-G matters on two-colour chemistry, which reads "no signal" as G |
@@ -66,8 +93,9 @@ Resource overrides only. **It ships sized for a 28-core, 500 GB box — lower
 tasks at once, and it is free to change at any point.
 
 `GATK4_MARKDUPLICATES` gets 60 GB against sarek's 30 GB; `GATK4_MUTECT2` gets 4 cpus and 16 GB, up
-from 2 and 12. With dozens of chunks under the cpu cap, per-chunk `cpus` is what decides how many
-run at once. Keep the `* task.attempt` on the memory values: it is what lets a task that ran out of
+from 2 and 12. `STRELKA_.*` gets 2 cpus and 4 GB, down from 6 and 36: a shard measured at 1.3 cores
+and 1 GB. With dozens of chunks under the cpu cap, per-chunk `cpus` is what decides how many run at
+once. Keep the `* task.attempt` on the memory values: it is what lets a task that ran out of
 memory ask for more when nextflow retries it.
 
 ## What you get
@@ -78,6 +106,12 @@ Under `results/`:
 |---|---|
 | `variant_calling/mutect2/<T>_vs_<N>/*.mutect2.filtered.vcf.gz` | **the one you want** |
 | `variant_calling/mutect2/<T>_vs_<N>/*.mutect2.vcf.gz` | unfiltered; almost certainly not |
+| `variant_calling/strelka/<T>_vs_<N>/*.somatic_{snvs,indels}.vcf.gz` | the second caller, in two files. Its columns are `NORMAL` and `TUMOR`, and it has no `GT` field |
+| `variant_calling/manta/<T>_vs_<N>/` | structural variants; only here to feed Strelka indel candidates |
+| `vs_reference/variant_calling/mutect2/<sample>/*.mutect2.filtered.vcf.gz` | the sample alone, tumour-only mode, when a `_VS_REF` switch is on |
+| `vs_reference/variant_calling/strelka/<sample>/*.strelka.variants.vcf.gz` | the sample alone, germline mode. `*.genome.vcf.gz` next to it is the gVCF |
+| `vs_reference/variant_calling/manta/<sample>/*.{tumor,diploid}_sv.vcf.gz` | structural variants, both modes |
+| `vs_reference/samplesheet.csv` | the sheet `run.sh` derived for the second run. Read it if a `_VS_REF` output is missing |
 | `preprocessing/recalibrated/<sample>/` | CRAMs |
 | `multiqc/`, `reports/` | QC |
 | `reference/` | whatever sarek built rather than downloaded; often nearly empty |
@@ -106,6 +140,9 @@ Nothing validates the samplesheet, so the first three fail in silence.
 - **A patient with no `status=0` row runs tumour-only and finishes normally**, handing you a VCF
   full of inherited variants. The one visible symptom is a filename with no `_vs_` in it.
 - **`status: 1.00` is not `1`, and a missing status column makes every row a normal.**
+- **The second run only works from the directory the first was launched in.** sarek writes the
+  CRAM paths in `results/csv/recalibrated.csv` relative to that directory, and `run.sh` copies them
+  as they are. `-preview` never reaches the second run, since its inputs do not exist yet.
 - **`Unable to parse config file`, on a host with no IPv4.** sarek fetches part of its config over
   https and Java tries IPv4 first, so the run dies before reading a single parameter — even though
   `curl` works on the same machine. `run.sh` already exports the fix.
