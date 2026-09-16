@@ -47,13 +47,15 @@ P1,NA,0,normal_lib,L001,/abs/path/normal.1.fastq.gz,/abs/path/normal.2.fastq.gz
 docker. Leave `SAREK` at 3.9.0, the version this is validated against. `-c nextflow.config` carries
 resource overrides only; parameters passed that way produce errors.
 
-`TOOLS` feeds `--tools`. The three `*_VS_*` switches pick which VCFs you get:
+`TOOLS` feeds `--tools`. The three `*_VS_*` switches pick which VCFs you get; the defaults give
+the somatic VCF per pair and a germline VCF per normal, which is what
+[epitopeprediction](https://github.com/nf-core/epitopeprediction) will take as germline context:
 
 | switch | what runs | where sarek puts it |
 |---|---|---|
 | `TUMOUR_VS_NORMAL` | the paired somatic call, in the first sarek run | `variant_calling/<tool>/<T>_vs_<N>/` |
 | `TUMOUR_VS_REF` | each tumour alone against the reference | `vs_reference/variant_calling/<tool>/<T>/` |
-| `NORMAL_VS_REF` | each normal alone against the reference | `vs_reference/variant_calling/<tool>/<N>/` |
+| `NORMAL_VS_REF` | each normal alone against the reference, on by default | `vs_reference/variant_calling/<tool>/<N>/` |
 
 The two `_VS_REF` switches trigger a second sarek run from the recalibrated CRAMs, so they cost
 calling time only. sarek decides how a sample is called from the samplesheet alone: a `status=1`
@@ -71,14 +73,14 @@ row it can use:
 
 So "normal vs reference with Mutect2" is Mutect2 run on the normal as if it were a tumour. Its
 filters then tag ordinary heterozygous variants as `germline` and `panel_of_normals`, because that
-is what Mutect2 exists to remove. Read the unfiltered VCF, or add `haplotypecaller` to `TOOLS`.
+is what Mutect2 exists to remove. The germline call to use is HaplotypeCaller's.
 
 | flag | why |
 |---|---|
 | `--genome GATK.GRCh38` | fetches the genome, its indexes, dbSNP, known indels, the gnomAD germline resource and a prebuilt BWA index. It also turns on BQSR and applies a 1000g panel of normals, which changes which calls PASS |
 | `--wes true` | targeted rather than whole-genome models |
 | `--intervals` | your target BED |
-| `--tools` | `TOOLS`. Manta is there only to hand Strelka indel candidates. **Pairing comes from the samplesheet's `status`, not from this flag** |
+| `--tools` | `TOOLS`. Manta is there only to hand Strelka indel candidates, and HaplotypeCaller only ever calls germline, so it does nothing in the paired run. **Pairing comes from the samplesheet's `status`, not from this flag** |
 | `--only_paired_variant_calling true` | keeps the germline call off the normal in the paired run, so every single-sample VCF comes from the second run and lives in one place |
 | `--nucleotides_per_second 1000` | splits calling into dozens of parallel chunks. At sarek's default an exome stays in one chunk and Mutect2 runs single-threaded for the whole run |
 | `--markduplicates_pixel_distance 2500` | for patterned flowcells such as NovaSeq. On unpatterned optics set it back to 100 |
@@ -110,11 +112,24 @@ Under `results/`:
 | `variant_calling/manta/<T>_vs_<N>/` | structural variants; only here to feed Strelka indel candidates |
 | `vs_reference/variant_calling/mutect2/<sample>/*.mutect2.filtered.vcf.gz` | the sample alone, tumour-only mode, when a `_VS_REF` switch is on |
 | `vs_reference/variant_calling/strelka/<sample>/*.strelka.variants.vcf.gz` | the sample alone, germline mode. `*.genome.vcf.gz` next to it is the gVCF |
+| `vs_reference/variant_calling/haplotypecaller/<N>/<N>.haplotypecaller.filtered.vcf.gz` | **the germline VCF**, filtered by GATK's CNN tranches. Germline only, so no `<T>` directory appears unless `TUMOUR_VS_REF` is on |
 | `vs_reference/variant_calling/manta/<sample>/*.{tumor,diploid}_sv.vcf.gz` | structural variants, both modes |
 | `vs_reference/samplesheet.csv` | the sheet `run.sh` derived for the second run. Read it if a `_VS_REF` output is missing |
 | `preprocessing/recalibrated/<sample>/` | CRAMs |
 | `multiqc/`, `reports/` | QC |
 | `reference/` | whatever sarek built rather than downloaded; often nearly empty |
+
+For epitopeprediction, one samplesheet row per patient maps onto these files as follows. Keep the
+two VCFs separate: every record in `filename` is treated as a somatic candidate, so germline calls
+there would become self peptides. The germline VCF is context only.
+
+| column | value |
+|---|---|
+| `filename` | `variant_calling/mutect2/<T>_vs_<N>/<T>_vs_<N>.mutect2.filtered.vcf.gz` |
+| `tumor_sample` | `<patient>_<T>`, the genotype column name, not the file name |
+| `germline_vcf` | `vs_reference/variant_calling/haplotypecaller/<N>/<N>.haplotypecaller.filtered.vcf.gz` |
+
+Both come from the same reference under `--genome GATK.GRCh38`, so build and contig names match.
 
 sarek names the VCF's two genotype columns `<patient>_<sample>`, but names the **file** from the
 bare sample ids. They will not match, and that is not a bug.

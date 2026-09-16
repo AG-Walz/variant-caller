@@ -7,10 +7,10 @@ WORKDIR=work                            # Nextflow work directory
 SAMPLESHEET=assets/samplesheet.csv      # Samples to analyze
 OUTDIR=results                          # Output directory
 INTERVALS=references/target_pad30.bed   # bed file (OUTPUT of build_bed.sh)
-TOOLS=mutect2,strelka,manta             # Callers. Manta only feeds Strelka indel candidates; add haplotypecaller for a GATK germline call
+TOOLS=mutect2,strelka,manta,haplotypecaller  # Callers. Manta only feeds Strelka indel candidates; HaplotypeCaller only calls germline
 TUMOUR_VS_NORMAL=true                   # paired somatic calls, <tumour>_vs_<normal>
 TUMOUR_VS_REF=false                     # each tumour alone against the reference
-NORMAL_VS_REF=false                     # each normal alone against the reference
+NORMAL_VS_REF=true                      # each normal alone against the reference: the germline VCF epitopeprediction needs
 
 # The JVM prefers IPv4; on an IPv6-only host sarek's https config include fails and the run
 # dies before reading a parameter.

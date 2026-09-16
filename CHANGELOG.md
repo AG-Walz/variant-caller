@@ -9,6 +9,9 @@
 - `run.sh`: `TOOLS`, `TUMOUR_VS_NORMAL`, `TUMOUR_VS_REF` and `NORMAL_VS_REF` variables. The two
   `_VS_REF` switches add a second sarek run from the recalibrated CRAMs that calls each selected
   sample alone, once as tumour-only and once as germline, under `results/vs_reference/`.
+- `haplotypecaller` in the default `TOOLS` and `NORMAL_VS_REF` on by default, so every run also
+  yields a filtered germline VCF per normal, the context epitopeprediction needs to build mutant
+  peptides on the patient's own sequence (#4, @axelwalter).
 
 ## 0.1.0 — 2026-09-01
 
