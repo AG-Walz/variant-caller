@@ -50,7 +50,9 @@ cp assets/samplesheet_template.csv assets/samplesheet.csv
 ```
 
 **3. Run.** Open `scripts/run.sh` and point `SAMPLESHEET`, `INTERVALS`, `OUTDIR` and `WORKDIR` at
-your files. `INTERVALS` is the `OUTPUT` that step 1 wrote.
+your files. `INTERVALS` is the `OUTPUT` that step 1 wrote. `TOOLS` lists the callers, and the three
+`*_VS_*` switches pick what gets called: tumour against normal, each tumour against the reference,
+each normal against the reference. Only the first is on by default.
 
 ```bash
 ./scripts/run.sh -preview   # checks that every path exists; run this first
@@ -62,8 +64,9 @@ your files. `INTERVALS` is the `OUTPUT` that step 1 wrote.
 Expect roughly 17 hours per tumour/normal pair on a 28-core machine. `-resume` is always on, so an
 interrupted run picks up where it stopped — provided you relaunch from the same directory.
 
-Your VCF: `results/variant_calling/mutect2/<T>_vs_<N>/<T>_vs_<N>.mutect2.filtered.vcf.gz`
+Your VCF: `results/variant_calling/mutect2/<T>_vs_<N>/<T>_vs_<N>.mutect2.filtered.vcf.gz`.
+Single-sample calls, if you switched them on: `results/vs_reference/variant_calling/<tool>/<sample>/`.
 
 Everything else: **[docs/reference.md](docs/reference.md)**.
 
-Paired somatic calling only: no tumour-only mode, no annotation, one caller.
+No annotation. Which caller can call what against the reference is in the docs.
