@@ -69,6 +69,7 @@ directory. The second run needs that too.
 
 Your somatic VCF: `results/variant_calling/mutect2/<T>_vs_<N>/<T>_vs_<N>.mutect2.filtered.vcf.gz`.
 Your germline VCF: `results/vs_reference/variant_calling/haplotypecaller/<N>/<N>.haplotypecaller.filtered.vcf.gz`.
+Whether the numbers in them look right: [docs/reference.md](docs/reference.md#checking-a-run).
 
 Everything else: **[docs/reference.md](docs/reference.md)**.
 
