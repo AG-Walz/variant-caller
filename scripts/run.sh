@@ -7,10 +7,10 @@ WORKDIR=work                            # Nextflow work directory
 SAMPLESHEET=assets/samplesheet.csv      # Samples to analyze
 OUTDIR=results                          # Output directory
 INTERVALS=references/target_pad30.bed   # bed file (OUTPUT of build_bed.sh)
-TOOLS=mutect2,strelka,manta             # Callers. Manta only feeds Strelka indel candidates; add haplotypecaller for a GATK germline call
+TOOLS=mutect2,strelka,manta,haplotypecaller  # Callers. Manta only feeds Strelka indel candidates; HaplotypeCaller only calls germline
 TUMOUR_VS_NORMAL=true                   # paired somatic calls, <tumour>_vs_<normal>
 TUMOUR_VS_REF=false                     # each tumour alone against the reference
-NORMAL_VS_REF=false                     # each normal alone against the reference
+NORMAL_VS_REF=true                      # each normal alone against the reference: the germline VCF epitopeprediction needs
 
 # The JVM prefers IPv4; on an IPv6-only host sarek's https config include fails and the run
 # dies before reading a parameter.
@@ -31,18 +31,17 @@ nextflow run nf-core/sarek "${COMMON[@]}" \
     --trim_nextseq true \
     --save_reference true || exit 1
 
-[[ ${TUMOUR_VS_REF} == true || ${NORMAL_VS_REF} == true ]] || exit 0
 [[ " $* " == *" -preview "* ]] && exit 0    # the CRAMs below do not exist yet
 
-# Every selected sample twice, each as its own patient: status 1 reaches the tumour-only callers
-# (Mutect2, Manta), status 0 the germline callers (Strelka, HaplotypeCaller). sarek has no other
-# way to call one sample against the reference.
+if [[ ${TUMOUR_VS_REF} == true || ${NORMAL_VS_REF} == true ]]; then
+# Each sample twice, as its own patient: status 1 reaches the tumour-only callers, status 0 the
+# germline ones. sarek refuses one sample id under two patients, hence the _only rename.
 SINGLE=${OUTDIR}/vs_reference/samplesheet.csv
 mkdir -p "$(dirname ${SINGLE})"
 awk -F, -v t=${TUMOUR_VS_REF} -v n=${NORMAL_VS_REF} 'NR == 1 { print; next }
     ($3 == 1 && t == "true") || ($3 == 0 && n == "true") {
-        print $4 "_only,"     $2 ",1," $4 "," $5 "," $6
-        print $4 "_germline," $2 ",0," $4 "," $5 "," $6 }' \
+        print $4 "_only,"     $2 ",1," $4 "_only," $5 "," $6
+        print $4 "_germline," $2 ",0," $4 ","      $5 "," $6 }' \
     ${OUTDIR}/csv/recalibrated.csv > ${SINGLE}
 
 nextflow run nf-core/sarek "${COMMON[@]}" \
@@ -50,3 +49,11 @@ nextflow run nf-core/sarek "${COMMON[@]}" \
     --input ${SINGLE} \
     --outdir ${OUTDIR}/vs_reference \
     --tools ${TOOLS}
+fi
+
+# Report: columns, records and PASS calls per VCF. docs/reference.md#checking-a-run says what to expect
+{ printf 'samples\trecords\tpass\tvcf\n'
+  for f in $(find ${OUTDIR} -path '*variant_calling*' -name '*.vcf.gz' ! -name '*genome*' ! -name '*_sv*'); do
+    printf '%s\t%s\t%s\t%s\n' "$(bcftools query -l $f | paste -sd,)" "$(bcftools view -H $f | wc -l)" \
+        "$(bcftools view -H -f PASS $f | wc -l)" "${f#${OUTDIR}/}"
+  done; } | tee ${OUTDIR}/vcf_check.tsv | column -t

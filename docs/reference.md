@@ -47,38 +47,31 @@ P1,NA,0,normal_lib,L001,/abs/path/normal.1.fastq.gz,/abs/path/normal.2.fastq.gz
 docker. Leave `SAREK` at 3.9.0, the version this is validated against. `-c nextflow.config` carries
 resource overrides only; parameters passed that way produce errors.
 
-`TOOLS` feeds `--tools`. The three `*_VS_*` switches pick which VCFs you get:
+`TOOLS` feeds `--tools`. The three `*_VS_*` switches pick which VCFs you get. The defaults give the
+somatic VCF per pair and a germline VCF per normal, the pair that
+[epitopeprediction](https://github.com/nf-core/epitopeprediction) takes as somatic calls plus
+germline context.
 
-| switch | what runs | where sarek puts it |
+| switch | what runs | where |
 |---|---|---|
-| `TUMOUR_VS_NORMAL` | the paired somatic call, in the first sarek run | `variant_calling/<tool>/<T>_vs_<N>/` |
-| `TUMOUR_VS_REF` | each tumour alone against the reference | `vs_reference/variant_calling/<tool>/<T>/` |
-| `NORMAL_VS_REF` | each normal alone against the reference | `vs_reference/variant_calling/<tool>/<N>/` |
+| `TUMOUR_VS_NORMAL` | paired somatic call, first sarek run | `variant_calling/<tool>/<T>_vs_<N>/` |
+| `TUMOUR_VS_REF` | each tumour alone | `vs_reference/variant_calling/<tool>/<T>_only/` (Mutect2, Manta) and `<T>/` (Strelka, HaplotypeCaller) |
+| `NORMAL_VS_REF` | each normal alone, on by default | same, for `<N>` |
 
-The two `_VS_REF` switches trigger a second sarek run from the recalibrated CRAMs, so they cost
-calling time only. sarek decides how a sample is called from the samplesheet alone: a `status=1`
-sample with no normal under its patient goes to the tumour-only callers, a `status=0` sample to the
-germline callers. `run.sh` therefore lists every selected sample twice under two made-up patients,
-`<sample>_only` with status 1 and `<sample>_germline` with status 0, and lets each tool pick the
-row it can use:
-
-| | status 1 row | status 0 row |
-|---|---|---|
-| Mutect2 | tumour-only mode, with the panel of normals in place of a matched normal | nothing; Mutect2 has no germline mode |
-| Strelka | nothing; sarek has no tumour-only Strelka | `strelka/germline`, a germline model that misses low-fraction subclonal calls |
-| Manta | `tumor_sv` | `diploid_sv` |
-| HaplotypeCaller | nothing | the real GATK germline call |
-
-So "normal vs reference with Mutect2" is Mutect2 run on the normal as if it were a tumour. Its
-filters then tag ordinary heterozygous variants as `germline` and `panel_of_normals`, because that
-is what Mutect2 exists to remove. Read the unfiltered VCF, or add `haplotypecaller` to `TOOLS`.
+The `_VS_REF` switches add a second sarek run from the recalibrated CRAMs, so they cost calling
+time only. sarek routes a sample by `status` alone, so `run.sh` lists each selected sample twice
+under two made-up patients: `<sample>_only` with status 1 reaches Mutect2 in tumour-only mode and
+Manta, the bare id with status 0 reaches HaplotypeCaller, Strelka's germline model and Manta.
+Mutect2 has no germline mode, and sarek has no tumour-only Strelka. Mutect2 on a normal is not a
+germline call: what its filters let through is the patient's private variation, measured at
+682 PASS on a normal against 734 in the paired call. The germline call to use is HaplotypeCaller's.
 
 | flag | why |
 |---|---|
 | `--genome GATK.GRCh38` | fetches the genome, its indexes, dbSNP, known indels, the gnomAD germline resource and a prebuilt BWA index. It also turns on BQSR and applies a 1000g panel of normals, which changes which calls PASS |
 | `--wes true` | targeted rather than whole-genome models |
 | `--intervals` | your target BED |
-| `--tools` | `TOOLS`. Manta is there only to hand Strelka indel candidates. **Pairing comes from the samplesheet's `status`, not from this flag** |
+| `--tools` | `TOOLS`. Manta is there only to hand Strelka indel candidates, and HaplotypeCaller only ever calls germline, so it does nothing in the paired run. **Pairing comes from the samplesheet's `status`, not from this flag** |
 | `--only_paired_variant_calling true` | keeps the germline call off the normal in the paired run, so every single-sample VCF comes from the second run and lives in one place |
 | `--nucleotides_per_second 1000` | splits calling into dozens of parallel chunks. At sarek's default an exome stays in one chunk and Mutect2 runs single-threaded for the whole run |
 | `--markduplicates_pixel_distance 2500` | for patterned flowcells such as NovaSeq. On unpatterned optics set it back to 100 |
@@ -108,23 +101,48 @@ Under `results/`:
 | `variant_calling/mutect2/<T>_vs_<N>/*.mutect2.vcf.gz` | unfiltered; almost certainly not |
 | `variant_calling/strelka/<T>_vs_<N>/*.somatic_{snvs,indels}.vcf.gz` | the second caller, in two files. Its columns are `NORMAL` and `TUMOR`, and it has no `GT` field |
 | `variant_calling/manta/<T>_vs_<N>/` | structural variants; only here to feed Strelka indel candidates |
-| `vs_reference/variant_calling/mutect2/<sample>/*.mutect2.filtered.vcf.gz` | the sample alone, tumour-only mode, when a `_VS_REF` switch is on |
+| `vs_reference/variant_calling/mutect2/<sample>_only/*.mutect2.filtered.vcf.gz` | the sample alone, tumour-only mode, when a `_VS_REF` switch is on |
 | `vs_reference/variant_calling/strelka/<sample>/*.strelka.variants.vcf.gz` | the sample alone, germline mode. `*.genome.vcf.gz` next to it is the gVCF |
-| `vs_reference/variant_calling/manta/<sample>/*.{tumor,diploid}_sv.vcf.gz` | structural variants, both modes |
+| `vs_reference/variant_calling/haplotypecaller/<N>/<N>.haplotypecaller.filtered.vcf.gz` | **the germline VCF**, filtered by GATK's CNN tranches. Germline only, so no `<T>` directory appears unless `TUMOUR_VS_REF` is on |
+| `vs_reference/variant_calling/manta/<sample>_only/*.tumor_sv.vcf.gz`, `manta/<sample>/*.diploid_sv.vcf.gz` | structural variants, both modes |
 | `vs_reference/samplesheet.csv` | the sheet `run.sh` derived for the second run. Read it if a `_VS_REF` output is missing |
 | `preprocessing/recalibrated/<sample>/` | CRAMs |
 | `multiqc/`, `reports/` | QC |
 | `reference/` | whatever sarek built rather than downloaded; often nearly empty |
 
+For epitopeprediction, one samplesheet row per patient maps onto these files as follows. Keep the
+two VCFs separate: every record in `filename` is treated as a somatic candidate, so germline calls
+there would become self peptides. The germline VCF is context only.
+
+| column | value |
+|---|---|
+| `filename` | `variant_calling/mutect2/<T>_vs_<N>/<T>_vs_<N>.mutect2.filtered.vcf.gz` |
+| `tumor_sample` | `<patient>_<T>`, the genotype column name, not the file name |
+| `germline_vcf` | `vs_reference/variant_calling/haplotypecaller/<N>/<N>.haplotypecaller.filtered.vcf.gz` |
+
+Both come from the same reference under `--genome GATK.GRCh38`, so build and contig names match.
+
 sarek names the VCF's two genotype columns `<patient>_<sample>`, but names the **file** from the
 bare sample ids. They will not match, and that is not a bug.
 
-```bash
-VCF=results/variant_calling/mutect2/*/*.mutect2.filtered.vcf.gz
-bcftools query -l $VCF                              # two columns: tumour, then normal
-bcftools query -f '%FILTER\n' $VCF | sort | uniq -c # how many calls PASS
-cat results/reports/mosdepth/*/*.mosdepth.summary.txt
-```
+## Checking a run
+
+`run.sh` ends by writing `results/vcf_check.tsv`: one line per VCF with its genotype columns, its
+record count and its PASS count. Read it against these values, measured on one exome pair at a
+49.6 Mb target:
+
+| VCF | measured | if it is far off |
+|---|---|---|
+| `mutect2/<T>_vs_<N>/*.mutect2.filtered` | 2 columns, tumour first; 734 PASS of 6,212 | one column or no `_vs_`: the patient had no `status=0` row. Tens of thousands PASS: tumour and normal swapped. The unfiltered `*.mutect2.vcf.gz` always shows 0 PASS |
+| `strelka/<T>_vs_<N>/*.somatic_{snvs,indels}` | `NORMAL,TUMOR`; 930 and 8 PASS | should land near Mutect2's count, not at ten times it |
+| `vs_reference/.../haplotypecaller/<N>/*.filtered` | 45,913 records, 98 % PASS | under 20,000: coverage or BED problem, check mosdepth. Over 60,000: the BED is wider than the kit |
+| `vs_reference/.../strelka/<N>/*.variants` | 44,383 records, 95 % PASS | should track HaplotypeCaller within a few percent |
+| `vs_reference/.../mutect2/<N>_only/*.filtered` | 682 PASS | germline the panel of normals cannot remove; not evidence of anything in the normal |
+| `vs_reference/.../mutect2/<T>_only/*.filtered` | 1,330 PASS against 734 paired | about half germline, by the line above; not a somatic call set |
+
+The germline VCF keeps its non-PASS records, tagged with CNN tranche filters, so epitopeprediction
+must select PASS. Of the 734 somatic PASS calls, the 150 bp windows around them held 160 PASS
+germline variants: roughly one somatic site in five has germline context nearby.
 
 Two blind spots when you read the calls. chrM, if your kit carries a mito panel, since Mutect2 is
 not run in mitochondria mode here. And the regions GRCh38 falsely duplicates — CBS, CRYAA, KCNE1,

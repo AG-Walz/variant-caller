@@ -9,6 +9,13 @@
 - `run.sh`: `TOOLS`, `TUMOUR_VS_NORMAL`, `TUMOUR_VS_REF` and `NORMAL_VS_REF` variables. The two
   `_VS_REF` switches add a second sarek run from the recalibrated CRAMs that calls each selected
   sample alone, once as tumour-only and once as germline, under `results/vs_reference/`.
+- `haplotypecaller` in the default `TOOLS` and `NORMAL_VS_REF` on by default, so every run also
+  yields a filtered germline VCF per normal, the context epitopeprediction needs to build mutant
+  peptides on the patient's own sequence (#4, @axelwalter).
+- `run.sh` writes `results/vcf_check.tsv` when it finishes: genotype columns, records and PASS
+  calls per VCF. `docs/reference.md` lists the values measured on the pilot pair to read it
+  against. Mutect2 tumour-only passed 682 calls on a normal against 734 paired, so that output is
+  documented as germline background, not a somatic call set.
 
 ## 0.1.0 — 2026-09-01
 
