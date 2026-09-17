@@ -36,13 +36,14 @@ nextflow run nf-core/sarek "${COMMON[@]}" \
 
 # Every selected sample twice, each as its own patient: status 1 reaches the tumour-only callers
 # (Mutect2, Manta), status 0 the germline callers (Strelka, HaplotypeCaller). sarek has no other
-# way to call one sample against the reference.
+# way to call one sample against the reference, and it refuses one sample id under two patients,
+# so the tumour-only row is renamed <sample>_only.
 SINGLE=${OUTDIR}/vs_reference/samplesheet.csv
 mkdir -p "$(dirname ${SINGLE})"
 awk -F, -v t=${TUMOUR_VS_REF} -v n=${NORMAL_VS_REF} 'NR == 1 { print; next }
     ($3 == 1 && t == "true") || ($3 == 0 && n == "true") {
-        print $4 "_only,"     $2 ",1," $4 "," $5 "," $6
-        print $4 "_germline," $2 ",0," $4 "," $5 "," $6 }' \
+        print $4 "_only,"     $2 ",1," $4 "_only," $5 "," $6
+        print $4 "_germline," $2 ",0," $4 ","      $5 "," $6 }' \
     ${OUTDIR}/csv/recalibrated.csv > ${SINGLE}
 
 nextflow run nf-core/sarek "${COMMON[@]}" \
