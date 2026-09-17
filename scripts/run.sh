@@ -31,13 +31,11 @@ nextflow run nf-core/sarek "${COMMON[@]}" \
     --trim_nextseq true \
     --save_reference true || exit 1
 
-[[ ${TUMOUR_VS_REF} == true || ${NORMAL_VS_REF} == true ]] || exit 0
 [[ " $* " == *" -preview "* ]] && exit 0    # the CRAMs below do not exist yet
 
-# Every selected sample twice, each as its own patient: status 1 reaches the tumour-only callers
-# (Mutect2, Manta), status 0 the germline callers (Strelka, HaplotypeCaller). sarek has no other
-# way to call one sample against the reference, and it refuses one sample id under two patients,
-# so the tumour-only row is renamed <sample>_only.
+if [[ ${TUMOUR_VS_REF} == true || ${NORMAL_VS_REF} == true ]]; then
+# Each sample twice, as its own patient: status 1 reaches the tumour-only callers, status 0 the
+# germline ones. sarek refuses one sample id under two patients, hence the _only rename.
 SINGLE=${OUTDIR}/vs_reference/samplesheet.csv
 mkdir -p "$(dirname ${SINGLE})"
 awk -F, -v t=${TUMOUR_VS_REF} -v n=${NORMAL_VS_REF} 'NR == 1 { print; next }
@@ -51,3 +49,11 @@ nextflow run nf-core/sarek "${COMMON[@]}" \
     --input ${SINGLE} \
     --outdir ${OUTDIR}/vs_reference \
     --tools ${TOOLS}
+fi
+
+# Report: columns, records and PASS calls per VCF. docs/reference.md#checking-a-run says what to expect
+{ printf 'samples\trecords\tpass\tvcf\n'
+  for f in $(find ${OUTDIR} -path '*variant_calling*' -name '*.vcf.gz' ! -name '*genome*' ! -name '*_sv*'); do
+    printf '%s\t%s\t%s\t%s\n' "$(bcftools query -l $f | paste -sd,)" "$(bcftools view -H $f | wc -l)" \
+        "$(bcftools view -H -f PASS $f | wc -l)" "${f#${OUTDIR}/}"
+  done; } | tee ${OUTDIR}/vcf_check.tsv | column -t
