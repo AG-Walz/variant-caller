@@ -45,17 +45,19 @@ P1,NA,0,normal_lib,L001,/abs/path/normal.1.fastq.gz,/abs/path/normal.2.fastq.gz
 `SAMPLESHEET`, `OUTDIR`, `WORKDIR` and `INTERVALS` feed `--input`, `--outdir`, `-work-dir` and
 `--intervals`. `PROFILE` feeds `-profile` — change it if you use singularity or conda instead of
 docker. Leave `SAREK` at 3.9.0, the version this is validated against. `-c nextflow.config` carries
-resource overrides only; parameters passed that way produce errors.
+resource overrides only; parameters passed that way produce errors. Give `OUTDIR` a new value each
+run (a date or cohort label) so results don't collide; keep `WORKDIR` the same across runs so
+`-resume` reuses cached tasks — recalibrated CRAMs, QC — instead of recomputing them.
 
-`TOOLS` feeds `--tools`. The three `*_VS_*` switches pick which VCFs you get. The defaults give the
-somatic VCF per pair and a germline VCF per normal, the pair that
+`TOOLS` feeds `--tools`. The three `*_VS_*` switches pick which VCFs you get, and all three are on
+by default: the somatic VCF per pair, a germline VCF per normal — the pair
 [epitopeprediction](https://github.com/nf-core/epitopeprediction) takes as somatic calls plus
-germline context.
+germline context — and each tumour's own calls against the reference.
 
 | switch | what runs | where |
 |---|---|---|
-| `TUMOUR_VS_NORMAL` | paired somatic call, first sarek run | `variant_calling/<tool>/<T>_vs_<N>/` |
-| `TUMOUR_VS_REF` | each tumour alone | `vs_reference/variant_calling/<tool>/<T>_only/` (Mutect2, Manta) and `<T>/` (Strelka, HaplotypeCaller) |
+| `TUMOUR_VS_NORMAL` | paired somatic call, first sarek run, on by default | `variant_calling/<tool>/<T>_vs_<N>/` |
+| `TUMOUR_VS_REF` | each tumour alone, on by default | `vs_reference/variant_calling/<tool>/<T>_only/` (Mutect2, Manta) and `<T>/` (Strelka, HaplotypeCaller) |
 | `NORMAL_VS_REF` | each normal alone, on by default | same, for `<N>` |
 
 The `_VS_REF` switches add a second sarek run from the recalibrated CRAMs, so they cost calling

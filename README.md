@@ -1,8 +1,8 @@
 # variant-caller
 
-Tumour/normal FASTQ in, one paired somatic VCF per patient plus one germline VCF per normal, by
-running [nf-core/sarek](https://github.com/nf-core/sarek) 3.9.0 with Mutect2, Strelka and
-HaplotypeCaller. Optionally, each tumour called alone against the reference as well.
+Tumour/normal FASTQ in, one paired somatic VCF per patient, a germline VCF per normal, and each
+tumour's own calls against the reference, by running
+[nf-core/sarek](https://github.com/nf-core/sarek) 3.9.0 with Mutect2, Strelka and HaplotypeCaller.
 There is no pipeline code here — sarek does the work.
 
 ## Requirements
@@ -51,9 +51,11 @@ cp assets/samplesheet_template.csv assets/samplesheet.csv
 ```
 
 **3. Run.** Open `scripts/run.sh` and point `SAMPLESHEET`, `INTERVALS`, `OUTDIR` and `WORKDIR` at
-your files. `INTERVALS` is the `OUTPUT` that step 1 wrote. `TOOLS` lists the callers, and the three
-`*_VS_*` switches pick what gets called: tumour against normal, each tumour against the reference,
-each normal against the reference. The first and last are on by default.
+your files. Give `OUTDIR` a fresh name each run — a date or cohort label — so old results stay put
+instead of being overwritten; leave `WORKDIR` the same across runs so `-resume` can reuse its cache.
+`INTERVALS` is the `OUTPUT` that step 1 wrote. `TOOLS` lists the callers, and the three `*_VS_*`
+switches pick what gets called: tumour against normal, each tumour against the reference, each
+normal against the reference. All three are on by default.
 
 ```bash
 ./scripts/run.sh -preview   # checks that every path exists; run this first
