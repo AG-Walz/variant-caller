@@ -16,6 +16,10 @@
   calls per VCF. `docs/reference.md` lists the values measured on the pilot pair to read it
   against. Mutect2 tumour-only passed 682 calls on a normal against 734 paired, so that output is
   documented as germline background, not a somatic call set.
+- `TUMOUR_VS_REF` on by default too, so one run of `run.sh` gives all three comparisons — paired
+  somatic, tumour-alone, normal-alone/germline — without editing the switches. `OUTDIR`'s comment
+  now says to name it per run; `WORKDIR` stays shared across runs so `-resume` keeps reusing its
+  cache.
 
 ## 0.1.0 — 2026-09-01
 
